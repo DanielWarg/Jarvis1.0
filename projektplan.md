@@ -1,6 +1,6 @@
 # 🧭 Instruktion till kodagenten (Cursor)
 
-Du är kodagent för projektet Jarvis-Vision 2.0. Följ detta dokument som enda sanning för arkitektur, teknikval, prioriteringar och leveranser. All inferens sker lokalt med GPT-oss-20b (samma modell för dialog och recept/måltider). Optimera för robust MVP först, därefter utbyggnad. Skriv tydlig, testbar och produktionsnära kod. Använd nedan stack och struktur. Fråga endast när något är genuint odefinierat.
+Du är kodagent för projektet Jarvis-Vision 2.0. Följ detta dokument som enda sanning för arkitektur, teknikval, prioriteringar och leveranser. All inferens sker lokalt med gpt-oss:20b (samma modell för dialog och recept/måltider). Optimera för robust MVP först, därefter utbyggnad. Skriv tydlig, testbar och produktionsnära kod. Använd nedan stack och struktur. Fråga endast när något är genuint odefinierat.
 
 ---
 
@@ -8,7 +8,7 @@ Du är kodagent för projektet Jarvis-Vision 2.0. Följ detta dokument som enda 
 
 ## 1) Översikt
 
-Jarvis-Vision 2.0 är ett lokalt, modulärt AI-hemassistentsystem som körs utan moln. Edge-noder (Raspberry Pi) hanterar video/sensorik och lättare inferens. Core (MacBook Pro M4) kör GPT-oss-20b, API, UI och databaser. Webbappen efterliknar ChatGPT i mobil stående läge (PWA). Fokus: integritet (privacy-zoner), prestanda, enkel drift.
+Jarvis-Vision 2.0 är ett lokalt, modulärt AI-hemassistentsystem som körs utan moln. Edge-noder (Raspberry Pi) hanterar video/sensorik och lättare inferens. Core (MacBook Pro M4) kör gpt-oss:20b, API, UI och databaser. Webbappen efterliknar ChatGPT i mobil stående läge (PWA). Fokus: integritet (privacy-zoner), prestanda, enkel drift.
 
 ### Mål och KPI (målvärden)
 
@@ -25,7 +25,7 @@ Jarvis-Vision 2.0 är ett lokalt, modulärt AI-hemassistentsystem som körs utan
 
 ### Funktionella
 
-F1 RTSP-kamerahantering • F2 Objektdetektion (YOLO-tiny) • F3 Personidentifiering (Face embeddings) • F4 Närvarosensorer (PIR/ljud) • F5 MQTT-buss (TLS, QoS) • F6 Dialog via GPT-oss-20b • F7 Recept/måltidsplan via GPT-oss-20b • F8 REST-API: recept • F9 REST-API: måltidsplan • F10 REST-API: inköpslista • F11 Streamlit-/Web-UI • F12 TTS • F13 Säkerhet/kryptering • F14 GDPR: radering/portabilitet • F15 Backup/restore • F16 CI/CD • F17 Monitoring & loggning • F18 Fallback vid nodavbrott • F19 Wake-word • F20 Privacy-zoner i video.
+F1 RTSP-kamerahantering • F2 Objektdetektion (YOLO-tiny) • F3 Personidentifiering (Face embeddings) • F4 Närvarosensorer (PIR/ljud) • F5 MQTT-buss (TLS, QoS) • F6 Dialog via gpt-oss:20b • F7 Recept/måltidsplan via gpt-oss:20b • F8 REST-API: recept • F9 REST-API: måltidsplan • F10 REST-API: inköpslista • F11 Streamlit-/Web-UI • F12 TTS • F13 Säkerhet/kryptering • F14 GDPR: radering/portabilitet • F15 Backup/restore • F16 CI/CD • F17 Monitoring & loggning • F18 Fallback vid nodavbrott • F19 Wake-word • F20 Privacy-zoner i video.
 
 ### Icke-funktionella
 
@@ -45,7 +45,7 @@ F1 RTSP-kamerahantering • F2 Objektdetektion (YOLO-tiny) • F3 Personidentifi
 
 ### Core (MacBook Pro M4)
 
-• GPT-oss-20b (samma modell för dialog + recept/måltid), kvantiserad 4–8 bit; utnyttja Metal/Core ML där möjligt.
+• gpt-oss:20b (samma modell för dialog + recept/måltid), kvantiserad 4–8 bit; utnyttja Metal/Core ML där möjligt.
 • API-gateway (FastAPI) med OpenAPI, idempotens, rate-limit.
 • Databaser: SQLite (metadata), FAISS (embeddings, krypterad volym).
 • UI: Next.js 14 (PWA) + Streamlit om enklare panel behövs under MVP.
@@ -96,7 +96,7 @@ System: GET /api/health • GET /api/metrics • POST /api/settings.
 
 ### Realtime
 
-/ws/chat – strömma tokens från GPT-oss-20b.
+/ws/chat – strömma tokens från gpt-oss:20b.
 /ws/events – edge-händelser (objekt, närvaro, face hits) via MQTT-brygga.
 
 ---
@@ -124,7 +124,7 @@ System: GET /api/health • GET /api/metrics • POST /api/settings.
 
 ## 8) Tekniska rekommendationer (prestanda)
 
-• **GPT-oss-20b kvantiserad (4–8 bit)** på MacBook Pro M4; begränsa max tokens, aktivera streaming tidigt.
+• **gpt-oss:20b kvantiserad (4–8 bit)** på MacBook Pro M4; begränsa max tokens, aktivera streaming tidigt.
 • Frame-policy: dynamisk sampling efter rörelse; NMS-tuning; klassfilter.
 • Edge-skrivningar: minimera SD-slitage (tmpfs/SSD, log-rotation).
 • NTP på alla noder.
@@ -138,7 +138,7 @@ System: GET /api/health • GET /api/metrics • POST /api/settings.
 Sprint 1 (2 v): RTSP + MQTT, statuspanel, health checks.
 Sprint 2 (2 v): YOLO-tiny pipeline, eventflöden, grundläggande dashboards.
 Sprint 3 (2 v): Face-embeddings, FAISS, profiler, privacy-zoner.
-Sprint 4 (2 v): GPT-oss-20b chat+recept, TTS, wake-word (basic).
+Sprint 4 (2 v): gpt-oss:20b chat+recept, TTS, wake-word (basic).
 Sprint 5 (2 v): HLS-live, snapshots, UI-integration av händelser via WS.
 Sprint 6 (2 v): Säkerhet/GDPR (TLS, RBAC, radering), backup-verifiering, DR-övning.
 Sprint 7 (2 v): CI/CD, OTA, provisioning, stabilisering.
@@ -165,8 +165,8 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 * [ ] YOLO-tiny objektdetektion
 * [ ] Face-embeddings (light)
 * [ ] MQTT (TLS, QoS)
-* [ ] GPT-oss-20b: dialog
-* [ ] GPT-oss-20b: recept/måltider
+* [ ] gpt-oss:20b: dialog
+* [ ] gpt-oss:20b: recept/måltider
 * [ ] REST-API (FastAPI)
 * [ ] WebSocket/SSE (chat/events)
 * [ ] Privacy-zoner + live-blur
@@ -209,7 +209,7 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 ### 📅 Veckoplan
 
 Vecka 1: \[x] Struktur & beroenden • \[ ] MQTT.
-Vecka 2: \[ ] YOLO • \[ ] Face • \[ ] GPT-oss-20b API • \[ ] Privacy-zoner.
+Vecka 2: \[ ] YOLO • \[ ] Face • \[ ] gpt-oss:20b API • \[ ] Privacy-zoner.
 Vecka 3: \[ ] Next.js chat • \[ ] HLS/snapshots • \[ ] WS-händelser.
 Vecka 4: \[ ] TLS • \[ ] RBAC/passkeys • \[ ] CI/CD • \[ ] OTA.
 Vecka 5: \[ ] Pilot • \[ ] Prestanda • \[ ] Buggar.
@@ -247,7 +247,7 @@ Vecka 5: \[ ] Pilot • \[ ] Prestanda • \[ ] Buggar.
 
 ## 13) Notering om modellen
 
-All dialog och recept/måltidsplanering använder **GPT-oss-20b** (OpenAI open-weight). Kör **kvantiserad (4–8 bit)** på MacBook Pro M4 med streaming aktiverad.
+All dialog och recept/måltidsplanering använder **gpt-oss:20b** (OpenAI open-weight). Kör **kvantiserad (4–8 bit)** på MacBook Pro M4 med streaming aktiverad.
 
 ---
 

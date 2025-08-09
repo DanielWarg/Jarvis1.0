@@ -19,7 +19,7 @@ Detta är en levande README som uppdateras löpande när vi gör framsteg. Följ
 ```bash
 curl -s http://localhost:8000/api/chat \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"Säg hej","model":"gpt-oss-20b","stream":false}'
+  -d '{"prompt":"Säg hej","model":"gpt-oss:20b","stream":false}'
 ```
 
 ### Chat via WebSocket
@@ -27,7 +27,7 @@ curl -s http://localhost:8000/api/chat \
 Skicka t.ex. denna text som första meddelande:
 
 ```json
-{"prompt":"Säg hej","model":"gpt-oss-20b"}
+{"prompt":"Säg hej","model":"gpt-oss:20b"}
 ```
 
 ## Projektstruktur
@@ -58,11 +58,11 @@ requirements.txt
 - Web: initiera Next.js 14, lägg till Tailwind och shadcn/ui.
 - Docker Compose för hel stack.
 
-## Lokal modell (Ollama / GPT‑oss‑20b)
+## Lokal modell (Ollama / gpt-oss:20b)
 
-- Förutsätter att `ollama` är installerad och att modellen `gpt-oss-20b` finns lokalt.
+- Förutsätter att `ollama` är installerad och att modellen `gpt-oss:20b` finns lokalt.
 - Snabbtest:
   ```bash
-  ollama run gpt-oss-20b "Säg hej"
+  ollama run gpt-oss:20b "Säg hej"
   ```
 - Backend kommer att integrera mot Ollama för chat/recept enligt `projektplan.md` (REST + WS).
