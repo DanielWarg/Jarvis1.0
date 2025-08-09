@@ -16,6 +16,15 @@ Detta är en levande README som uppdateras löpande när vi gör framsteg. Följ
   # Exempel på svar
   # {"status":"ok","db":true,"mqtt":false,"ollama":true,"default_model":"gpt-oss:20b"}
 
+## Snabbstart (Web)
+
+```bash
+cd web
+npm run dev
+```
+
+Öppna `http://localhost:3000` och skicka ett meddelande – streamas från WS `/ws/chat`.
+
 ### Chat via Ollama (REST)
 
 ```bash

@@ -168,14 +168,14 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 * [x] gpt-oss:20b: dialog
 * [ ] gpt-oss:20b: recept/måltider
 * [ ] REST-API (FastAPI)
-* [ ] WebSocket/SSE (chat/events)
+* [x] WebSocket/SSE (chat/events)
 * [ ] Privacy-zoner + live-blur
 * [ ] Wake-word/hotword
 
 ### 🎨 Användargränssnitt (webb)
 
 * [ ] Next.js 14 + Tailwind + shadcn/ui
-* [ ] ChatGPT-lik konversationsvy (mobil)
+* [x] ChatGPT-lik konversationsvy (mobil)
 * [ ] Responsiv + PWA-redo
 * [ ] Live-vy (HLS + snapshots)
 * [ ] Händelsepanel i realtid (WS)
@@ -211,6 +211,7 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 Vecka 1: \[x] Struktur & beroenden • \[ ] MQTT.
 Vecka 2: \[ ] YOLO • \[ ] Face • \[ ] gpt-oss:20b API • \[ ] Privacy-zoner.
 Vecka 3: \[ ] Next.js chat • \[ ] HLS/snapshots • \[ ] WS-händelser.
+Vecka 3 uppdatering: \[x] Next.js chat • \[ ] HLS/snapshots • \[ ] WS-händelser.
 Vecka 4: \[ ] TLS • \[ ] RBAC/passkeys • \[ ] CI/CD • \[ ] OTA.
 Vecka 5: \[ ] Pilot • \[ ] Prestanda • \[ ] Buggar.
 
