@@ -41,3 +41,12 @@ requirements.txt
 - Edge: MQTT‑heartbeat och RTSP‑placeholder.
 - Web: initiera Next.js 14, lägg till Tailwind och shadcn/ui.
 - Docker Compose för hel stack.
+
+## Lokal modell (Ollama / GPT‑oss‑20b)
+
+- Förutsätter att `ollama` är installerad och att modellen `gpt-oss-20b` finns lokalt.
+- Snabbtest:
+  ```bash
+  ollama run gpt-oss-20b "Säg hej"
+  ```
+- Backend kommer att integrera mot Ollama för chat/recept enligt `projektplan.md` (REST + WS).
