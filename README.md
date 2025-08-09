@@ -14,6 +14,22 @@ Detta är en levande README som uppdateras löpande när vi gör framsteg. Följ
 - Hälso‑koll:
   GET http://localhost:8000/api/health
 
+### Chat via Ollama (REST)
+
+```bash
+curl -s http://localhost:8000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"Säg hej","model":"gpt-oss-20b","stream":false}'
+```
+
+### Chat via WebSocket
+
+Skicka t.ex. denna text som första meddelande:
+
+```json
+{"prompt":"Säg hej","model":"gpt-oss-20b"}
+```
+
 ## Projektstruktur
 
 core/
