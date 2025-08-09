@@ -16,6 +16,18 @@ Detta är en levande README som uppdateras löpande när vi gör framsteg. Följ
   # Exempel på svar
   # {"status":"ok","db":true,"mqtt":false,"ollama":true,"default_model":"gpt-oss:20b"}
 
+### Kameror (RTSP)
+
+Lägg till en kamera och hämta snapshot (ffmpeg krävs för JPEG, annars SVG‑fallback):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/cameras \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"cam-1","url":"rtsp://user:pass@192.168.1.10:554/stream1","name":"Hall"}'
+
+open http://127.0.0.1:8000/api/cameras/cam-1/snapshot.jpg
+```
+
 ## Snabbstart (Web)
 
 ```bash

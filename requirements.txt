@@ -5,3 +5,4 @@ SQLAlchemy
 paho-mqtt
 faiss-cpu
 httpx
+websockets

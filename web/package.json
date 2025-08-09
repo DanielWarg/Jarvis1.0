@@ -18,5 +18,10 @@
     "ws": "^8.18.3",
     "zustand": "^4.5.7"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "24.2.1",
+    "@types/react": "19.1.9",
+    "typescript": "5.9.2"
+  }
 }

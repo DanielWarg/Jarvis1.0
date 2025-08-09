@@ -1,13 +1,15 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, Set
 import os
 import json
 import httpx
 from .db import ping_database
 from .mqtt_client import ping_mqtt
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+from .cameras import list_cameras, upsert_camera, get_camera, Camera, capture_snapshot_jpeg
 
 
 class ChatRequest(BaseModel):
@@ -140,8 +142,104 @@ async def ws_chat(websocket: WebSocket):
                 await websocket.send_json({"done": True, "total_duration": obj.get("total_duration")})
                 break
     except WebSocketDisconnect:
-        return
+        pass
     except Exception as e:
-        await websocket.send_json({"error": str(e)})
+        try:
+            await websocket.send_json({"error": str(e)})
+        except Exception:
+            pass
+    # Låt klienten stänga, undvik kompatibilitetsproblem i vissa websockets-versioner
+
+
+# --- Realtime events (WS) ---
+event_clients: Set[WebSocket] = set()
+
+
+async def broadcast_event(event: dict) -> None:
+    data = json.dumps(event)
+    stale: Set[WebSocket] = set()
+    for ws in event_clients:
+        try:
+            await ws.send_text(data)
+        except Exception:
+            stale.add(ws)
+    for ws in stale:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        event_clients.discard(ws)
+
+
+@app.websocket("/ws/events")
+async def ws_events(websocket: WebSocket):
+    await websocket.accept()
+    event_clients.add(websocket)
+    try:
+        while True:
+            # vi lyssnar inte på klientmeddelanden i denna kanal
+            await asyncio.sleep(60)
+    except WebSocketDisconnect:
+        pass
     finally:
-        await websocket.close()
+        event_clients.discard(websocket)
+
+
+class TestEvent(BaseModel):
+    type: str = "motion"
+    cameraId: str = "cam-1"
+    snapshotUrl: Optional[str] = None
+    message: Optional[str] = None
+
+
+@app.post("/api/events/test")
+async def post_test_event(ev: TestEvent):
+    event_dict = ev.dict()
+    if not event_dict.get("snapshotUrl"):
+        event_dict["snapshotUrl"] = f"{os.getenv('PUBLIC_BASE', 'http://127.0.0.1:8000')}/api/cameras/{ev.cameraId}/snapshot.svg"
+    if not event_dict.get("message"):
+        event_dict["message"] = f"Rörelse detekterad på {ev.cameraId}"
+    await broadcast_event(event_dict)
+    return {"ok": True}
+
+
+@app.get("/api/cameras/{camera_id}/snapshot.svg")
+def camera_snapshot_svg(camera_id: str):
+    # Generera enkel SVG-placeholder (lokalt)
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">
+<rect width="100%" height="100%" fill="#111827"/>
+<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#e5e7eb" font-size="20" font-family="Arial, Helvetica, sans-serif">{camera_id} snapshot</text>
+</svg>'''
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+# --- Kamera endpoints ---
+
+
+class CameraIn(BaseModel):
+    id: str
+    url: str
+    name: Optional[str] = None
+
+
+@app.get("/api/cameras")
+def api_list_cameras():
+    return [c.__dict__ for c in list_cameras()]
+
+
+@app.post("/api/cameras")
+def api_upsert_camera(cam: CameraIn):
+    upsert_camera(Camera(**cam.dict()))
+    return {"ok": True}
+
+
+@app.get("/api/cameras/{camera_id}/snapshot.jpg")
+def api_snapshot_jpg(camera_id: str):
+    cam = get_camera(camera_id)
+    if not cam:
+        raise HTTPException(status_code=404, detail="camera not found")
+    content = capture_snapshot_jpeg(cam.url)
+    if not content:
+        # fallback: svg placeholder
+        return camera_snapshot_svg(camera_id)
+    return Response(content=content, media_type="image/jpeg")
