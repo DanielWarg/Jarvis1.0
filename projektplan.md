@@ -156,7 +156,7 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 * [x] Huvudfiler (core/edge)
 * [x] Python .venv
 * [x] Beroenden (backend + frontend)
-* [ ] Bas-konfiguration (MQTT, API, DB)
+* [x] Bas-konfiguration (MQTT, API, DB)
 * [ ] Docker-compose.yml för full stack
 
 ### 🔧 Kärnfunktionalitet
@@ -165,7 +165,7 @@ Pilot (2 v): 5–10 hushåll → åtgärda feedback → v1.0.
 * [ ] YOLO-tiny objektdetektion
 * [ ] Face-embeddings (light)
 * [ ] MQTT (TLS, QoS)
-* [ ] gpt-oss:20b: dialog
+* [x] gpt-oss:20b: dialog
 * [ ] gpt-oss:20b: recept/måltider
 * [ ] REST-API (FastAPI)
 * [ ] WebSocket/SSE (chat/events)

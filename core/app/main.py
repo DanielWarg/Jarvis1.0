@@ -5,6 +5,8 @@ from typing import Optional, Dict
 import os
 import json
 import httpx
+from .db import ping_database
+from .mqtt_client import ping_mqtt
 
 
 class ChatRequest(BaseModel):
@@ -23,7 +25,25 @@ app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    db_ok = ping_database()
+    mqtt_ok = ping_mqtt()
+    try:
+        # enkel kontroll: finns modellen listad hos Ollama
+        import httpx as _hx
+
+        r = _hx.get(f"{OLLAMA_URL}/api/tags", timeout=2.0)
+        models = r.json().get("models", []) if r.status_code == 200 else []
+        ollama_ok = any(m.get("name") == DEFAULT_MODEL for m in models)
+    except Exception:
+        ollama_ok = False
+    status = {
+        "status": "ok" if db_ok else "degraded",
+        "db": db_ok,
+        "mqtt": mqtt_ok,
+        "ollama": ollama_ok,
+        "default_model": DEFAULT_MODEL,
+    }
+    return status
 
 
 async def stream_ollama_generate(payload: dict):

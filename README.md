@@ -13,6 +13,8 @@ Detta är en levande README som uppdateras löpande när vi gör framsteg. Följ
   uvicorn core.app.main:app --reload
 - Hälso‑koll:
   GET http://localhost:8000/api/health
+  # Exempel på svar
+  # {"status":"ok","db":true,"mqtt":false,"ollama":true,"default_model":"gpt-oss:20b"}
 
 ### Chat via Ollama (REST)
 
