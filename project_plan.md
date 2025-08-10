@@ -244,3 +244,60 @@ User Input → AI Brain → Tool/Command Selection → Execution → Result → 
 **Status:** JARVIS Ultimate AI System is LIVE and LEARNING! 🤖💫
 
 
+
+## 🚦 Jarvis 2.0 — Incremental Build Plan
+
+### F1: Connect HUD and Brain (Foundations)
+- [x] Next.js PWA HUD scaffolded (`web/`, SAFE_BOOT default)
+- [x] Backend FastAPI skeleton with WS hello and health (`server/app.py`)
+- [ ] HUD WebSocket client: listen to `/ws/jarvis` and dispatch `hud_command`
+- [ ] Prompt input → POST `/api/jarvis/command`
+- [ ] HUD panels: "Intent Queue" and "Journal" (stream AI intents/lessons)
+- [x] Health endpoint `/api/health` and basic logging
+
+#### F1.1 Security Baseline
+- [ ] Strict CORS, TLS-ready config, CSRF for REST
+- [ ] WS auth (short-lived JWT), audience + expiry checks
+- [ ] Tool call schema validation and parameter whitelisting
+- [ ] Rate limiting and basic abuse detection
+
+### F2: Memory Lite (RAG)
+- [ ] SQLite tables: `events`, `memories(text/image)`, `lessons`, `tool_stats`
+- [ ] Embeddings pipeline (text via Ollama nomic-embed-text)
+- [ ] FAISS index for text; BM25 hybrid retrieval
+- [ ] API: `/api/memory/upsert`, `/api/memory/retrieve`
+- [ ] Prompt builder: top‑K memories + lessons included in system prompt
+
+#### F2.1 Feedback Loop
+- [ ] HUD feedback (👍/👎) → POST `/api/feedback`
+- [ ] Update `memories.score` and `tool_stats`, boost successful patterns
+
+### F3: Online Learning
+- [ ] Bandit v1 for tool selection (ε‑greedy/Thompson); reward = success/utility
+- [ ] Shadow simulation (simulate‑first) pre‑check for risky actions
+- [ ] Safety governor thresholds and human‑confirm when low confidence
+
+### F4: Perception (CV & Sensors)
+- [ ] CV ingest: detect (RT‑DETR/YOLOv8), track (ByteTrack), CLIP embeddings for keyframes/objects
+- [ ] Sensor ingest + feature store (aggregations, anomalies, tags)
+- [ ] Visual & sensor memories into RAG retrieval
+
+### F5: Offline Training (Policy)
+- [ ] Replay buffer of sessions (plans, tool calls, outcomes, feedback)
+- [ ] Nightly DPO/LoRA on controller (not the 20B model)
+- [ ] Reward model v1 (classify good/bad outcomes)
+- [ ] Distillation of 20B chains of thought into controller for faster inference
+
+### F6: Packaging & Ops
+- [ ] Electron/Tauri desktop packaging
+- [ ] CI/CD pipeline (lint, build, tests, deploy)
+- [ ] Observability dashboards (tool success, latency, memory hit‑rate, autonomy ratio)
+
+### Acceptance per Phase
+- **F1**: HUD receives `hud_command` over WS; user input to REST; visible Intent/Journal panels
+- **F2**: Retrieval improves answers; lessons show up; relevant context included in prompts
+- **F3**: Tool success rate trends upward with bandit; risky actions blocked by simulate‑first
+- **F4**: AI references visual/sensor context in plans; RAG returns recent observations
+- **F5**: Controller decisions improve without calling 20B for every step
+- **F6**: Desktop app available; CI/CD green; clear telemetry
+
