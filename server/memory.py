@@ -59,6 +59,15 @@ class MemoryStore:
                 )
                 """
             )
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tool_stats (
+                    tool TEXT PRIMARY KEY,
+                    success INTEGER DEFAULT 0,
+                    fail INTEGER DEFAULT 0
+                )
+                """
+            )
 
     def ping(self) -> bool:
         try:
@@ -103,5 +112,26 @@ class MemoryStore:
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in rows]
+
+    def update_memory_score(self, mem_id: int, delta: float) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE memories SET score = COALESCE(score,0) + ? WHERE id = ?", (delta, mem_id))
+
+    def update_tool_stats(self, tool: str, success: bool) -> None:
+        with self._conn() as c:
+            # Upsert-like behavior for SQLite
+            c.execute("INSERT OR IGNORE INTO tool_stats(tool, success, fail) VALUES (?, 0, 0)", (tool,))
+            if success:
+                c.execute("UPDATE tool_stats SET success = success + 1 WHERE tool = ?", (tool,))
+            else:
+                c.execute("UPDATE tool_stats SET fail = fail + 1 WHERE tool = ?", (tool,))
+
+    def get_tool_stats(self, tool: str):
+        with self._conn() as c:
+            cur = c.execute("SELECT success, fail FROM tool_stats WHERE tool = ?", (tool,))
+            row = cur.fetchone()
+            if not row:
+                return 0, 0
+            return int(row[0] or 0), int(row[1] or 0)
 
 

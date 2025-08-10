@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .memory import MemoryStore
+from .decision import EpsilonGreedyBandit, simulate_first
 
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
@@ -29,6 +30,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 MEMORY_PATH = os.path.join(DATA_DIR, "jarvis.db")
 memory = MemoryStore(MEMORY_PATH)
+bandit = EpsilonGreedyBandit(memory)
 
 
 class JarvisCommand(BaseModel):
@@ -52,7 +54,21 @@ async def health() -> Dict[str, Any]:
 async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
     # Persist basic interaction for future learning
     memory.append_event("command", json.dumps(cmd.dict(), ensure_ascii=False))
+    # simulate-first risk gating
+    scores = simulate_first(cmd.dict())
+    if scores.get("risk", 1.0) > 0.8:
+        return JarvisResponse(ok=False, message="Command blocked by safety", command=cmd)
     return JarvisResponse(ok=True, message="Command received", command=cmd)
+
+
+class ToolPickBody(BaseModel):
+    candidates: List[str]
+
+
+@app.post("/api/decision/pick_tool")
+async def pick_tool(body: ToolPickBody) -> Dict[str, Any]:
+    choice = bandit.pick(body.candidates)
+    return {"ok": True, "tool": choice}
 
 
 class MemoryUpsert(BaseModel):
@@ -77,6 +93,24 @@ class MemoryQuery(BaseModel):
 async def memory_retrieve(body: MemoryQuery) -> Dict[str, Any]:
     items = memory.retrieve_text_memories(body.query, limit=body.limit or 5)
     return {"ok": True, "items": items}
+
+
+class FeedbackBody(BaseModel):
+    kind: str  # 'memory' | 'tool'
+    id: Optional[int] = None
+    tool: Optional[str] = None
+    up: bool = True
+
+
+@app.post("/api/feedback")
+async def feedback(body: FeedbackBody) -> Dict[str, Any]:
+    if body.kind == "memory" and body.id is not None:
+        memory.update_memory_score(body.id, 1.0 if body.up else -1.0)
+        return {"ok": True}
+    if body.kind == "tool" and body.tool:
+        memory.update_tool_stats(body.tool, success=body.up)
+        return {"ok": True}
+    return {"ok": False, "error": "invalid feedback payload"}
 
 
 class Hub:
