@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 pydantic
+httpx
+psutil
 SQLAlchemy
 paho-mqtt
 faiss-cpu

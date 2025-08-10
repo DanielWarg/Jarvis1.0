@@ -10,6 +10,8 @@ from .mqtt_client import ping_mqtt
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 from .cameras import list_cameras, upsert_camera, get_camera, Camera, capture_snapshot_jpeg
+from .advanced_ai_brain import advanced_ai
+from .command_handlers import register_all_handlers
 
 
 class ChatRequest(BaseModel):
@@ -23,7 +25,31 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-oss:20b")
 
 
-app = FastAPI()
+app = FastAPI(
+    title="🤖 JARVIS Ultimate AI System",
+    description="Advanced AI-powered HUD control with gpt-oss:20B, tool calling, and autonomous learning",
+    version="3.0.0"
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the advanced JARVIS system"""
+    logger.info("🚀 JARVIS Ultimate AI System starting up...")
+    
+    # Register all command handlers
+    register_all_handlers()
+    logger.info("✅ Command handlers registered")
+    
+    # Check AI brain connection
+    # Note: health check will be added to advanced_ai_brain if needed
+    logger.info("🧠 AI Brain initialized with tool calling capabilities")
+    
+    # Enable autonomous mode
+    await advanced_ai.enable_autonomous_mode()
+    logger.info("🤖 Autonomous mode ACTIVATED - JARVIS is now self-aware!")
+
+import logging
+logging.basicConfig(level=logging.INFO)
 
 origins = [
     "http://localhost:3000",
@@ -38,6 +64,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.post("/api/jarvis/command")
+async def jarvis_advanced_command(request: dict):
+    """Advanced JARVIS command processing with AI brain"""
+    try:
+        user_input = request.get("prompt", "")
+        context = request.get("context", {})
+        
+        if not user_input:
+            return {"error": "No command provided", "success": False}
+        
+        # Process with advanced AI brain
+        result = await advanced_ai.process_advanced_command(user_input, context)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Advanced command error: {e}")
+        return {"error": str(e), "success": False}
+
+@app.get("/api/jarvis/capabilities") 
+async def get_jarvis_capabilities():
+    """Get JARVIS current capabilities and available tools"""
+    tools = advanced_ai.tool_registry.get_available_tools()
+    commands = advanced_ai.memory_system.get_execution_log(10)
+    
+    return {
+        "status": "online",
+        "autonomous_mode": advanced_ai.autonomous_mode,
+        "learning_enabled": advanced_ai.learning_enabled,
+        "available_tools": tools,
+        "recent_commands": commands,
+        "memory_stats": {
+            "short_term_memories": len(advanced_ai.memory_system.short_term_memory),
+            "tool_usage": advanced_ai.tool_registry.tool_usage_stats
+        }
+    }
 
 @app.get("/api/health")
 def health():
@@ -117,6 +179,12 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
+@app.websocket("/ws/jarvis")
+async def ws_jarvis_advanced(websocket: WebSocket):
+    """Advanced JARVIS WebSocket with AI brain and tool calling"""
+    from .websocket import handle_websocket
+    await handle_websocket(websocket)
+
 @app.websocket("/ws/chat")
 async def ws_chat(websocket: WebSocket):
     await websocket.accept()
@@ -149,6 +217,13 @@ async def ws_chat(websocket: WebSocket):
         except Exception:
             pass
     # Låt klienten stänga, undvik kompatibilitetsproblem i vissa websockets-versioner
+
+# New JARVIS AI WebSocket endpoint
+@app.websocket("/ws/jarvis")
+async def ws_jarvis_ai(websocket: WebSocket):
+    """JARVIS AI Brain WebSocket - HUD Control"""
+    from .websocket import handle_websocket
+    await handle_websocket(websocket)
 
 
 # --- Realtime events (WS) ---
