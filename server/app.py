@@ -59,6 +59,13 @@ async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
     scores = simulate_first(cmd.dict())
     if scores.get("risk", 1.0) > 0.8:
         return JarvisResponse(ok=False, message="Command blocked by safety", command=cmd)
+    # Optional WS broadcast for HUD when receiving explicit dispatch commands
+    try:
+        ctype = (cmd.type or "").lower()
+        if ctype in {"dispatch", "hud"} and isinstance(cmd.payload, dict):
+            await hub.broadcast({"type": "hud_command", "command": cmd.payload})
+    except Exception:
+        pass
     return JarvisResponse(ok=True, message="Command received", command=cmd)
 
 
