@@ -7,13 +7,14 @@ from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, Optional, Set, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .memory import MemoryStore
 
 
-app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0")
+app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
 
 app.add_middleware(
     CORSMiddleware,
@@ -93,16 +94,18 @@ class Hub:
             self._clients.discard(ws)
 
     async def broadcast(self, event: Dict[str, Any]) -> None:
-        dead: List[WebSocket] = []
         data = json.dumps(event)
         async with self._lock:
-            for ws in list(self._clients):
-                try:
-                    await ws.send_text(data)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self._clients.discard(ws)
+            clients = list(self._clients)
+        # Skicka i parallell utanför låset för att undvika att blockera andra operationer
+        results = await asyncio.gather(
+            *[ws.send_text(data) for ws in clients], return_exceptions=True
+        )
+        # Rensa döda anslutningar
+        async with self._lock:
+            for ws, res in zip(clients, results):
+                if isinstance(res, Exception):
+                    self._clients.discard(ws)
 
 
 hub = Hub()

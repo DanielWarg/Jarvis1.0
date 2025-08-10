@@ -30,6 +30,7 @@ class MemoryStore:
                 )
                 """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_events_topic_ts ON events(topic, ts)")
             c.execute(
                 """
                 CREATE TABLE IF NOT EXISTS memories (

@@ -75,13 +75,13 @@ function useGlobalErrorCatcher() {
 
 // ────────────────────────────────────────────────────────────────────────────────
 // HUD primitives
-const GlowDot = ({ className }) => (
+const GlowDot = React.memo(({ className }) => (
   <span className={`relative inline-block ${className || ""}`}>
     <span className="absolute inset-0 rounded-full blur-[6px] bg-cyan-400/40" />
     <span className="absolute inset-0 rounded-full blur-[14px] bg-cyan-400/20" />
     <span className="relative block h-full w-full rounded-full bg-cyan-300" />
   </span>
-);
+));
 const RingGauge = ({ size = 180, value, label, sublabel, icon, showValue = true }) => {
   const pct = clampPercent(value); const r = size * 0.42; const c = 2 * Math.PI * r; const dash = (pct / 100) * c;
   const gradId = useId();
@@ -109,13 +109,13 @@ const RingGauge = ({ size = 180, value, label, sublabel, icon, showValue = true 
   );
 };
 function Metric({ label, value, icon }) { return (<div className="text-center"><div className="flex items-center justify-center gap-2 text-xs text-cyan-300/80">{icon} {label}</div><div className="text-2xl font-semibold text-cyan-100">{Math.round(value)}%</div></div>); }
-const Pane = ({ title, children, className, actions }) => (
+const Pane = React.memo(({ title, children, className, actions }) => (
   <div className={`relative rounded-2xl border border-cyan-500/20 bg-cyan-950/20 p-4 shadow-[0_0_60px_-20px_rgba(34,211,238,.5)] ${className || ""}`}>
     <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><GlowDot className="h-2 w-2" /><h3 className="text-cyan-200/90 text-xs uppercase tracking-widest">{title}</h3></div><div className="flex gap-2 text-cyan-300/70">{actions}</div></div>
     {children}
     <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-cyan-300/10" />
   </div>
-);
+));
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Hooks (simulerad data)
@@ -197,10 +197,13 @@ function ThreeBGAdvanced() {
     if (SAFE_BOOT) return;
     const newParticles = Array.from({ length: 30 }, (_, i) => ({ id: i, x: Math.random() * 100, y: Math.random() * 100, z: Math.random() * 100, speed: 0.1 + Math.random() * 0.2, size: 1 + Math.random() * 1.5 }));
     setParticles(newParticles);
-    const interval = setInterval(() => {
+    let raf = 0;
+    const tick = () => {
       setParticles(prev => prev.map(p => ({ ...p, y: p.y >= 100 ? -5 : p.y + p.speed, x: p.x + Math.sin(Date.now() * 0.001 + p.id) * 0.05 })));
-    }, 50);
-    return () => clearInterval(interval);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
   if (SAFE_BOOT) {
     return (<div className="absolute inset-0 -z-10"><div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 via-transparent to-blue-900/10" /></div>);
