@@ -1,0 +1,11 @@
+.venv/
+node_modules/
+.next/
+dist/
+.DS_Store
+*.log
+coverage/
+*.local
+*.env*
+web/node_modules/
+
