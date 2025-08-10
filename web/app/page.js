@@ -245,6 +245,8 @@ function HUDInner() {
   const [intents, setIntents] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);
+  const dispatchRef = useRef(dispatch);
+  useEffect(() => { dispatchRef.current = dispatch; }, [dispatch]);
 
   // WS-klient till backend
   useEffect(() => {
@@ -261,7 +263,7 @@ function HUDInner() {
           if (msg.type === "hud_command" && msg.command) {
             setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: msg.command }, ...q].slice(0, 50));
             // Förväntar sig format { type: 'SHOW_MODULE', module: 'calendar' } etc.
-            dispatch(msg.command);
+            dispatchRef.current && dispatchRef.current(msg.command);
           } else if (msg.type === "hello" || msg.type === "heartbeat" || msg.type === "echo" || msg.type === "ack") {
             setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: JSON.stringify(msg) }, ...j].slice(0, 100));
           }
@@ -272,7 +274,7 @@ function HUDInner() {
       };
     } catch (_) {}
     return () => { try { wsRef.current && wsRef.current.close(); } catch (_) {} };
-  }, [dispatch]);
+  }, []);
   useEffect(() => { if (SAFE_BOOT) return; const id = setInterval(() => { if (typeof window !== 'undefined' && Math.random() < 0.07) dispatch({ type: "OPEN_VIDEO", source: { kind: "webcam" } }); }, 4000); return () => clearInterval(id); }, [dispatch]);
   const timeInit = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []); const [now, setNow] = useState(timeInit); useEffect(() => { const id = setInterval(() => setNow(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), 1000); return () => clearInterval(id); }, []);
   return (
