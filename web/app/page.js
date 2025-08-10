@@ -354,6 +354,19 @@ function HUDInner() {
                   setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
                 } catch (_) {}
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
+              <button aria-label="Auto Decide" onClick={async ()=>{
+                try{
+                  const res = await fetch('http://127.0.0.1:8000/api/decision/pick_tool',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ candidates: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'] })});
+                  const j = await res.json();
+                  const tool = (j && j.tool) || 'SHOW_MODULE';
+                  let cmd;
+                  if (tool === 'SHOW_MODULE') cmd = { type:'SHOW_MODULE', module:'calendar' };
+                  else if (tool === 'OPEN_VIDEO') cmd = { type:'OPEN_VIDEO', source:{ kind:'webcam' } };
+                  else cmd = { type:'HIDE_OVERLAY' };
+                  setIntents((q)=>[{ id:safeUUID(), ts:new Date().toISOString(), command: cmd }, ...q].slice(0,50));
+                  dispatchRef.current && dispatchRef.current(cmd);
+                }catch(_){ }
+              }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Auto</button>
             </div>
           </Pane>
 
