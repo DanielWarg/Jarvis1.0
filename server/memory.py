@@ -68,6 +68,28 @@ class MemoryStore:
                 )
                 """
             )
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cv_frames (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    source TEXT,
+                    meta TEXT                -- JSON (objects, notes)
+                )
+                """
+            )
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sensor_timeseries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    sensor TEXT NOT NULL,
+                    value REAL,
+                    meta TEXT                -- JSON
+                )
+                """
+            )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_sensor_ts ON sensor_timeseries(sensor, ts)")
 
     def ping(self) -> bool:
         try:
@@ -133,5 +155,24 @@ class MemoryStore:
             if not row:
                 return 0, 0
             return int(row[0] or 0), int(row[1] or 0)
+
+    # --- Perception/Sensors ---
+    def add_cv_frame(self, source: str, meta_json: str) -> int:
+        ts = datetime.utcnow().isoformat() + "Z"
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO cv_frames (ts, source, meta) VALUES (?, ?, ?)",
+                (ts, source, meta_json),
+            )
+            return int(cur.lastrowid)
+
+    def add_sensor_telemetry(self, sensor: str, value: float, meta_json: str = None) -> int:
+        ts = datetime.utcnow().isoformat() + "Z"
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO sensor_timeseries (ts, sensor, value, meta) VALUES (?, ?, ?, ?)",
+                (ts, sensor, value, meta_json),
+            )
+            return int(cur.lastrowid)
 
 

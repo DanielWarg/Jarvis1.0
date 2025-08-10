@@ -71,6 +71,33 @@ async def pick_tool(body: ToolPickBody) -> Dict[str, Any]:
     return {"ok": True, "tool": choice}
 
 
+class CVIngestBody(BaseModel):
+    source: str
+    meta: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/cv/ingest")
+async def cv_ingest(body: CVIngestBody) -> Dict[str, Any]:
+    meta_json = json.dumps(body.meta) if body.meta is not None else None
+    frame_id = memory.add_cv_frame(body.source, meta_json=meta_json)
+    memory.append_event("cv.ingest", json.dumps({"id": frame_id, "source": body.source}))
+    return {"ok": True, "id": frame_id}
+
+
+class SensorBody(BaseModel):
+    sensor: str
+    value: float
+    meta: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/sensor/telemetry")
+async def sensor_telemetry(body: SensorBody) -> Dict[str, Any]:
+    meta_json = json.dumps(body.meta) if body.meta is not None else None
+    sid = memory.add_sensor_telemetry(body.sensor, body.value, meta_json=meta_json)
+    memory.append_event("sensor.telemetry", json.dumps({"id": sid, "sensor": body.sensor}))
+    return {"ok": True, "id": sid}
+
+
 class MemoryUpsert(BaseModel):
     text: str
     score: Optional[float] = 0.0
