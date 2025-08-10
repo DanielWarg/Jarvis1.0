@@ -1,178 +1,211 @@
 """
-WebSocket handler for real-time AI communication
+🌐 WebSocket Management for JARVIS Ultimate AI System
+Real-time communication layer för AI-HUD integration
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Dict, Any, List
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, List, Set
 from datetime import datetime
 
-from .ai_brain import ai_brain
+from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
 class ConnectionManager:
-    """Manage WebSocket connections"""
+    """Advanced WebSocket connection manager för JARVIS"""
     
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
-        self.connection_data: Dict[WebSocket, Dict] = {}
-    
-    async def connect(self, websocket: WebSocket):
-        """Accept new connection"""
+        self.active_connections: Set[WebSocket] = set()
+        self.connection_metadata: Dict[WebSocket, Dict] = {}
+        
+    async def connect(self, websocket: WebSocket, client_info: Dict = None):
+        """Accept new WebSocket connection"""
         await websocket.accept()
-        self.active_connections.append(websocket)
-        self.connection_data[websocket] = {
-            "connected_at": datetime.now(),
-            "user_id": None
+        self.active_connections.add(websocket)
+        
+        # Store connection metadata
+        self.connection_metadata[websocket] = {
+            "connected_at": datetime.now().isoformat(),
+            "client_info": client_info or {},
+            "message_count": 0
         }
-        logger.info(f"New WebSocket connection. Total: {len(self.active_connections)}")
-    
+        
+        logger.info(f"New WebSocket connection established. Total: {len(self.active_connections)}")
+        
     def disconnect(self, websocket: WebSocket):
-        """Remove connection"""
+        """Remove WebSocket connection"""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        if websocket in self.connection_data:
-            del self.connection_data[websocket]
-        logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
+            
+        if websocket in self.connection_metadata:
+            metadata = self.connection_metadata.pop(websocket)
+            logger.info(f"WebSocket disconnected. Duration: {metadata.get('connected_at')}, "
+                       f"Messages: {metadata.get('message_count', 0)}")
     
-    async def send_personal_message(self, message: Dict[str, Any], websocket: WebSocket):
-        """Send message to specific client"""
+    async def send_personal_message(self, message: Dict, websocket: WebSocket):
+        """Send message to specific connection"""
         try:
-            await websocket.send_text(json.dumps(message))
+            await websocket.send_text(json.dumps(message, ensure_ascii=False))
+            
+            # Update message count
+            if websocket in self.connection_metadata:
+                self.connection_metadata[websocket]["message_count"] += 1
+                
         except Exception as e:
-            logger.error(f"Error sending message: {e}")
+            logger.error(f"Failed to send personal message: {e}")
             self.disconnect(websocket)
     
-    async def broadcast(self, message: Dict[str, Any]):
-        """Send message to all connected clients"""
-        disconnected = []
+    async def broadcast(self, message: Dict):
+        """Broadcast message to all connected clients"""
+        if not self.active_connections:
+            logger.debug("No active connections for broadcast")
+            return
+            
+        message_str = json.dumps(message, ensure_ascii=False)
+        disconnected = set()
+        
         for connection in self.active_connections:
             try:
-                await connection.send_text(json.dumps(message))
+                await connection.send_text(message_str)
+                
+                # Update message count
+                if connection in self.connection_metadata:
+                    self.connection_metadata[connection]["message_count"] += 1
+                    
             except Exception as e:
-                logger.error(f"Error broadcasting to connection: {e}")
-                disconnected.append(connection)
+                logger.error(f"Failed to broadcast to connection: {e}")
+                disconnected.add(connection)
         
-        # Clean up disconnected clients
+        # Clean up disconnected connections
         for connection in disconnected:
             self.disconnect(connection)
+            
+        logger.debug(f"Broadcasted message to {len(self.active_connections)} connections")
+    
+    async def get_connection_stats(self) -> Dict:
+        """Get connection statistics"""
+        return {
+            "total_connections": len(self.active_connections),
+            "connections": [
+                {
+                    "connected_at": metadata.get("connected_at"),
+                    "message_count": metadata.get("message_count", 0),
+                    "client_info": metadata.get("client_info", {})
+                }
+                for metadata in self.connection_metadata.values()
+            ]
+        }
 
-# Global connection manager
+# Global connection manager instance
 manager = ConnectionManager()
 
 async def handle_websocket(websocket: WebSocket):
-    """Main WebSocket handler"""
-    await manager.connect(websocket)
+    """
+    Advanced WebSocket handler för JARVIS AI communication
+    Hanterar AI-kommandon, tool calling och real-time responses
+    """
+    from .advanced_ai_brain import advanced_ai
     
-    # Send welcome message
-    await manager.send_personal_message({
-        "type": "system",
-        "message": "JARVIS är online och redo att ta emot kommandon",
-        "timestamp": datetime.now().isoformat()
-    }, websocket)
+    client_info = {
+        "user_agent": websocket.headers.get("user-agent", "Unknown"),
+        "origin": websocket.headers.get("origin", "Unknown")
+    }
+    
+    await manager.connect(websocket, client_info)
     
     try:
         while True:
             # Receive message from client
             data = await websocket.receive_text()
-            message = json.loads(data)
             
-            # Process different message types
-            if message.get("type") == "ai_command":
-                await handle_ai_command(message, websocket)
-            elif message.get("type") == "system_update":
-                await handle_system_update(message, websocket)
-            elif message.get("type") == "ping":
+            try:
+                message = json.loads(data)
+                
+                # Extract AI command details
+                message_type = message.get("type", "unknown")
+                prompt = message.get("prompt", "")
+                context = message.get("context", {})
+                
+                if message_type == "ai_command" and prompt:
+                    # Send acknowledgment
+                    await manager.send_personal_message({
+                        "type": "processing",
+                        "message": "JARVIS är i process av att förstå ditt kommando...",
+                        "timestamp": datetime.now().isoformat()
+                    }, websocket)
+                    
+                    # Process with Advanced AI Brain
+                    try:
+                        ai_result = await advanced_ai.process_advanced_command(prompt, context)
+                        
+                        # Send AI response
+                        await manager.send_personal_message({
+                            "type": "ai_response",
+                            "data": ai_result,
+                            "timestamp": datetime.now().isoformat()
+                        }, websocket)
+                        
+                        # If there were tool calls or commands, broadcast to all clients
+                        if ai_result.get("tool_calls") or ai_result.get("commands"):
+                            await manager.broadcast({
+                                "type": "system_update",
+                                "message": "JARVIS utförde actions på systemet",
+                                "details": {
+                                    "tool_calls": len(ai_result.get("tool_calls", [])),
+                                    "commands": len(ai_result.get("commands", [])),
+                                    "success": ai_result.get("success", False)
+                                },
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            
+                    except Exception as ai_error:
+                        logger.error(f"AI processing error: {ai_error}")
+                        await manager.send_personal_message({
+                            "type": "error",
+                            "message": f"JARVIS AI error: {str(ai_error)}",
+                            "timestamp": datetime.now().isoformat()
+                        }, websocket)
+                
+                elif message_type == "ping":
+                    # Health check
+                    await manager.send_personal_message({
+                        "type": "pong",
+                        "timestamp": datetime.now().isoformat(),
+                        "status": "JARVIS is alive and learning"
+                    }, websocket)
+                
+                elif message_type == "get_stats":
+                    # Send connection statistics
+                    stats = await manager.get_connection_stats()
+                    await manager.send_personal_message({
+                        "type": "stats",
+                        "data": stats,
+                        "timestamp": datetime.now().isoformat()
+                    }, websocket)
+                
+                else:
+                    # Unknown message type
+                    await manager.send_personal_message({
+                        "type": "error",
+                        "message": f"Unknown message type: {message_type}",
+                        "supported_types": ["ai_command", "ping", "get_stats"],
+                        "timestamp": datetime.now().isoformat()
+                    }, websocket)
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON received: {e}")
                 await manager.send_personal_message({
-                    "type": "pong",
+                    "type": "error",
+                    "message": "Invalid JSON format",
                     "timestamp": datetime.now().isoformat()
                 }, websocket)
-            else:
-                logger.warning(f"Unknown message type: {message.get('type')}")
                 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        logger.info("WebSocket client disconnected normally")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+    finally:
         manager.disconnect(websocket)
-
-async def handle_ai_command(message: Dict[str, Any], websocket: WebSocket):
-    """Handle AI command from client"""
-    try:
-        user_input = message.get("prompt", "")
-        user_context = message.get("context", {})
-        
-        if not user_input.strip():
-            await manager.send_personal_message({
-                "type": "error",
-                "message": "Inget kommando mottaget"
-            }, websocket)
-            return
-        
-        # Send "thinking" status
-        await manager.send_personal_message({
-            "type": "ai_thinking",
-            "message": "JARVIS tänker...",
-            "timestamp": datetime.now().isoformat()
-        }, websocket)
-        
-        # Process with AI brain
-        ai_response = await ai_brain.process_command(user_input, user_context)
-        
-        # Send AI response back to client
-        await manager.send_personal_message({
-            "type": "ai_response",
-            "message": ai_response["message"],
-            "commands": ai_response["commands"],
-            "success": ai_response["success"],
-            "timestamp": ai_response["timestamp"]
-        }, websocket)
-        
-        # If there are commands, also broadcast them for system-wide updates
-        if ai_response["commands"]:
-            await manager.broadcast({
-                "type": "system_command",
-                "commands": ai_response["commands"],
-                "timestamp": ai_response["timestamp"]
-            })
-        
-    except Exception as e:
-        logger.error(f"Error handling AI command: {e}")
-        await manager.send_personal_message({
-            "type": "error",
-            "message": f"AI-fel: {str(e)}",
-            "timestamp": datetime.now().isoformat()
-        }, websocket)
-
-async def handle_system_update(message: Dict[str, Any], websocket: WebSocket):
-    """Handle system status updates from client"""
-    try:
-        # Store system context for AI
-        update_type = message.get("update_type")
-        data = message.get("data", {})
-        
-        # Broadcast system updates to other clients if needed
-        if update_type in ["metrics", "module_change", "todo_update"]:
-            await manager.broadcast({
-                "type": "system_sync",
-                "update_type": update_type,
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
-        
-    except Exception as e:
-        logger.error(f"Error handling system update: {e}")
-
-async def send_system_alert(alert_type: str, message: str, data: Dict[str, Any] = None):
-    """Send system alert to all clients"""
-    await manager.broadcast({
-        "type": "system_alert",
-        "alert_type": alert_type,
-        "message": message,
-        "data": data or {},
-        "timestamp": datetime.now().isoformat()
-    })
