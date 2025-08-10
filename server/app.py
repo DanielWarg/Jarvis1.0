@@ -54,6 +54,30 @@ async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
     return JarvisResponse(ok=True, message="Command received", command=cmd)
 
 
+class MemoryUpsert(BaseModel):
+    text: str
+    score: Optional[float] = 0.0
+    tags: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/memory/upsert")
+async def memory_upsert(body: MemoryUpsert) -> Dict[str, Any]:
+    tags_json = json.dumps(body.tags) if body.tags is not None else None
+    mem_id = memory.upsert_text_memory(body.text, score=body.score or 0.0, tags_json=tags_json)
+    return {"ok": True, "id": mem_id}
+
+
+class MemoryQuery(BaseModel):
+    query: str
+    limit: Optional[int] = 5
+
+
+@app.post("/api/memory/retrieve")
+async def memory_retrieve(body: MemoryQuery) -> Dict[str, Any]:
+    items = memory.retrieve_text_memories(body.query, limit=body.limit or 5)
+    return {"ok": True, "items": items}
+
+
 class Hub:
     def __init__(self) -> None:
         self._clients: Set[WebSocket] = set()
