@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
+from .training import stream_dataset
 
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
@@ -96,6 +97,15 @@ async def sensor_telemetry(body: SensorBody) -> Dict[str, Any]:
     sid = memory.add_sensor_telemetry(body.sensor, body.value, meta_json=meta_json)
     memory.append_event("sensor.telemetry", json.dumps({"id": sid, "sensor": body.sensor}))
     return {"ok": True, "id": sid}
+
+
+@app.get("/api/training/dump")
+async def training_dump():
+    # Stream newline-delimited JSON for offline training pipeline
+    async def gen():
+        for chunk in stream_dataset(MEMORY_PATH):
+            yield chunk
+    return ORJSONResponse(gen(), media_type="application/x-ndjson")
 
 
 class MemoryUpsert(BaseModel):
