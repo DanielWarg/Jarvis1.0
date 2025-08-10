@@ -242,6 +242,37 @@ function TodoList({ todos, onToggle, onRemove, onAdd }) {
 export default function JarvisHUD() { return (<ErrorBoundary><HUDProvider><HUDInner /></HUDProvider></ErrorBoundary>); }
 function HUDInner() {
   const { cpu, mem, net } = useSystemMetrics(); const weather = useWeatherStub(); const { todos, add, toggle, remove } = useTodos(); const { transcript, isListening, start, stop } = useVoiceInput(); const [query, setQuery] = useState(""); const { globalError } = useGlobalErrorCatcher(); const { dispatch } = useHUD();
+  const [intents, setIntents] = useState([]);
+  const [journal, setJournal] = useState([]);
+  const wsRef = useRef(null);
+
+  // WS-klient till backend
+  useEffect(() => {
+    const url = `ws://127.0.0.1:8000/ws/jarvis`;
+    try {
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: "WS connected" }, ...j].slice(0, 50));
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "hud_command" && msg.command) {
+            setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: msg.command }, ...q].slice(0, 50));
+            // Förväntar sig format { type: 'SHOW_MODULE', module: 'calendar' } etc.
+            dispatch(msg.command);
+          } else if (msg.type === "hello" || msg.type === "heartbeat" || msg.type === "echo" || msg.type === "ack") {
+            setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: JSON.stringify(msg) }, ...j].slice(0, 100));
+          }
+        } catch (_) {}
+      };
+      ws.onclose = () => {
+        setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: "WS disconnected" }, ...j].slice(0, 50));
+      };
+    } catch (_) {}
+    return () => { try { wsRef.current && wsRef.current.close(); } catch (_) {} };
+  }, [dispatch]);
   useEffect(() => { if (SAFE_BOOT) return; const id = setInterval(() => { if (typeof window !== 'undefined' && Math.random() < 0.07) dispatch({ type: "OPEN_VIDEO", source: { kind: "webcam" } }); }, 4000); return () => clearInterval(id); }, [dispatch]);
   const timeInit = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []); const [now, setNow] = useState(timeInit); useEffect(() => { const id = setInterval(() => setNow(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), 1000); return () => clearInterval(id); }, []);
   return (
@@ -301,9 +332,46 @@ function HUDInner() {
             <div className="flex justify-center py-10"><JarvisCore /></div>
             <div className="mt-6 flex items-center gap-2">
               <IconSearch className="h-4 w-4 text-cyan-300/70" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && alert(`Pretend-search for: ${query}`)} placeholder="Fråga Jarvis…" className="w-full bg-transparent text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none" />
-              <button aria-label="Sök" onClick={()=> alert(`Pretend-search for: ${query}`)} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
+              <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={async (e) => {
+                if (e.key === "Enter" && query.trim()) {
+                  const body = { type: "USER_QUERY", payload: { query: query.trim() } };
+                  try {
+                    await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                    setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
+                  } catch (_) {}
+                }
+              }} placeholder="Fråga Jarvis…" className="w-full bg-transparent text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none" />
+              <button aria-label="Sök" onClick={async ()=> {
+                if (!query.trim()) return;
+                const body = { type: "USER_QUERY", payload: { query: query.trim() } };
+                try {
+                  await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                  setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
+                } catch (_) {}
+              }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
             </div>
+          </Pane>
+
+          <Pane title="Intent Queue">
+            <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
+              {intents.map((it) => (
+                <li key={it.id} className="rounded border border-cyan-400/10 p-2">
+                  <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
+                  <pre className="whitespace-pre-wrap break-words text-cyan-200/90">{JSON.stringify(it.command)}</pre>
+                </li>
+              ))}
+            </ul>
+          </Pane>
+
+          <Pane title="Journal">
+            <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
+              {journal.map((it) => (
+                <li key={it.id} className="rounded border border-cyan-400/10 p-2">
+                  <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
+                  <div className="text-cyan-200/90 break-words">{it.text}</div>
+                </li>
+              ))}
+            </ul>
           </Pane>
 
           <Pane title="Media">

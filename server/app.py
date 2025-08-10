@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 from datetime import datetime
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, Optional, Set, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,14 +32,14 @@ memory = MemoryStore(MEMORY_PATH)
 
 class JarvisCommand(BaseModel):
     type: str = Field(..., description="Command type, e.g., SHOW_MODULE, HIDE_OVERLAY, OPEN_VIDEO")
-    payload: Dict[str, Any] | None = None
+    payload: Optional[Dict[str, Any]] = None
 
 
 class JarvisResponse(BaseModel):
     ok: bool
     message: str
     ts: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
-    command: JarvisCommand | None = None
+    command: Optional[JarvisCommand] = None
 
 
 @app.get("/api/health")
@@ -56,7 +56,7 @@ async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
 
 class Hub:
     def __init__(self) -> None:
-        self._clients: set[WebSocket] = set()
+        self._clients: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket) -> None:
@@ -69,7 +69,7 @@ class Hub:
             self._clients.discard(ws)
 
     async def broadcast(self, event: Dict[str, Any]) -> None:
-        dead: list[WebSocket] = []
+        dead: List[WebSocket] = []
         data = json.dumps(event)
         async with self._lock:
             for ws in list(self._clients):
