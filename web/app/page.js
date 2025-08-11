@@ -249,7 +249,9 @@ function HUDInner() {
   const [geoCity, setGeoCity] = useState(null);
   const [intents, setIntents] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
-  const [provider, setProvider] = useState('auto'); // 'auto' | 'local' | 'openai'
+  const [provider, setProvider] = useState('openai'); // default Online
+  useEffect(()=>{ try{ const saved=localStorage.getItem('jarvis_provider'); if(saved) setProvider(saved); }catch(_){ } },[]);
+  useEffect(()=>{ try{ localStorage.setItem('jarvis_provider', provider); }catch(_){ } },[provider]);
   const [toolStats, setToolStats] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);

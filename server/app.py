@@ -199,15 +199,27 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
             if isinstance(res, dict):
                 return res
             last_error = res
-        else:  # auto
-            res = await try_local()
-            if isinstance(res, dict):
-                return res
-            last_error = res
-            res = await try_openai()
-            if isinstance(res, dict):
-                return res
-            last_error = res
+        else:  # auto: race local vs openai
+            t_local = asyncio.create_task(try_local())
+            t_openai = asyncio.create_task(try_openai())
+            done, pending = await asyncio.wait({t_local, t_openai}, return_when=asyncio.FIRST_COMPLETED)
+            for d in done:
+                res = d.result()
+                if isinstance(res, dict):
+                    # cancel the slower one
+                    for p in pending:
+                        p.cancel()
+                    return res
+                last_error = res
+            # if first completed wasn't dict, wait the other
+            for p in pending:
+                try:
+                    res = await p
+                    if isinstance(res, dict):
+                        return res
+                    last_error = res
+                except asyncio.CancelledError:
+                    pass
     except Exception:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
@@ -337,7 +349,25 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
     elif provider == "openai":
         proposed = await try_openai()
     else:
-        proposed = await try_local() or await try_openai()
+        # auto: race
+        t_local = asyncio.create_task(try_local())
+        t_openai = asyncio.create_task(try_openai())
+        done, pending = await asyncio.wait({t_local, t_openai}, return_when=asyncio.FIRST_COMPLETED)
+        proposed = None
+        for d in done:
+            val = d.result()
+            if val:
+                proposed = val
+                break
+        if proposed is None:
+            for p in pending:
+                try:
+                    val = await p
+                    if val:
+                        proposed = val
+                        break
+                except asyncio.CancelledError:
+                    pass
     # Fallback: enkel regelbaserad tolkning
     if proposed is None:
         low = (user or "").lower()
