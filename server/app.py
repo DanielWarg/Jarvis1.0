@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, Optional, Set, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import logging
@@ -232,6 +232,129 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
     stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
     return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None}
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(body: ChatBody):
+    # Förbered RAG-kontekst likt /api/chat
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            rr = await client.post("http://127.0.0.1:8000/api/memory/retrieve", json={"query": body.prompt, "limit": 5})
+            contexts = (rr.json() or {}).get("items") if rr.status_code == 200 else []
+    except Exception:
+        contexts = []
+    ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+    full_prompt = (("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else "") + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+
+    provider = (body.provider or "auto").lower()
+
+    async def gen():
+        final_text = ""
+        used_provider = None
+        # Hjälpare för att skicka SSE
+        async def sse_send(obj):
+            yield f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+        # Försök OpenAI först i auto, annars explicit
+        async def try_openai_stream():
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return False
+            try:
+                async with httpx.AsyncClient(timeout=None) as client:
+                    r = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={
+                            "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                            "messages": [
+                                {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                                {"role": "user", "content": full_prompt},
+                            ],
+                            "temperature": 0.5,
+                            "stream": True,
+                            "max_tokens": 256,
+                        },
+                    )
+                    if r.status_code != 200:
+                        return False
+                    nonlocal final_text, used_provider
+                    used_provider = "openai"
+                    async for line in r.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data = line[len("data: "):].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                obj = json.loads(data)
+                                delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                                if delta:
+                                    final_text += delta
+                                    async for out in sse_send({"type": "chunk", "text": delta}):
+                                        yield out
+                            except Exception:
+                                continue
+                    return True
+            except Exception:
+                return False
+
+        async def try_local_stream():
+            try:
+                async with httpx.AsyncClient(timeout=None) as client:
+                    r = await client.post(
+                        "http://127.0.0.1:11434/api/generate",
+                        json={
+                            "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
+                            "prompt": full_prompt,
+                            "stream": True,
+                            "options": {"num_predict": 256, "temperature": 0.3},
+                        },
+                    )
+                    if r.status_code != 200:
+                        return False
+                    nonlocal final_text, used_provider
+                    used_provider = "local"
+                    async for line in r.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                            if obj.get("done"):
+                                break
+                            delta = obj.get("response")
+                            if delta:
+                                final_text += delta
+                                async for out in sse_send({"type": "chunk", "text": delta}):
+                                    yield out
+                        except Exception:
+                            continue
+                    return True
+            except Exception:
+                return False
+
+        ok = False
+        if provider == "openai":
+            ok = await try_openai_stream()
+        elif provider == "local":
+            ok = await try_local_stream()
+        else:
+            # auto: försök online först för snabbhet, sedan lokal
+            ok = await try_openai_stream() or await try_local_stream()
+
+        # done-event och minnesupsert
+        mem_id = None
+        try:
+            if final_text:
+                tags = {"source": "chat", "provider": used_provider}
+                mem_id = memory.upsert_text_memory(final_text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+        except Exception:
+            pass
+        async for out in sse_send({"type": "done", "provider": used_provider, "memory_id": mem_id}):
+            yield out
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 class ActBody(BaseModel):

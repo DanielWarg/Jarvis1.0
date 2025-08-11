@@ -444,6 +444,38 @@ function HUDInner() {
                   setQuery("");
                 }
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
+              <button aria-label="Stream" onClick={async ()=>{
+                if (!query.trim()) return;
+                const q=query.trim();
+                setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`You: ${q}`}, ...J].slice(0,100));
+                try{
+                  const res = await fetch('http://127.0.0.1:8000/api/chat/stream',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, provider })});
+                  if (!res.body) return;
+                  const reader = res.body.getReader();
+                  const dec = new TextDecoder();
+                  let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null;
+                  setJournal((J)=>[{ id: currentId, ts:new Date().toISOString(), text:`Jarvis: `}, ...J].slice(0,100));
+                  while(true){
+                    const {value, done} = await reader.read(); if (done) break;
+                    acc += dec.decode(value, { stream: true });
+                    const parts = acc.split("\n\n"); acc = parts.pop()||"";
+                    for (const p of parts){
+                      if (!p.startsWith('data: ')) continue;
+                      try{
+                        const obj = JSON.parse(p.slice(6));
+                        if (obj.type === 'chunk' && obj.text){
+                          setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: (item.text||'') + obj.text } : item));
+                        } else if (obj.type === 'done'){
+                          providerMark = obj.provider === 'openai' ? 'GPT' : 'Jarvis';
+                          memoryId = obj.memory_id || null;
+                          setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `${providerMark}: ${item.text.replace(/^Jarvis:\s*/,'')}`, memoryId } : item));
+                        }
+                      }catch(_){ }
+                    }
+                  }
+                }catch(_){ }
+                finally{ setQuery(""); }
+              }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Stream</button>
               <select aria-label="Provider" value={provider} onChange={(e)=> setProvider(e.target.value)} className="rounded-xl border border-cyan-400/30 bg-transparent px-2 py-1 text-xs">
                 <option value="auto">Auto</option>
                 <option value="local">Lokal</option>
