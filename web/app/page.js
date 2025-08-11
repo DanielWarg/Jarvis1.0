@@ -254,6 +254,18 @@ function HUDInner() {
   const wsRef = useRef(null);
   const dispatchRef = useRef(dispatch);
   useEffect(() => { dispatchRef.current = dispatch; }, [dispatch]);
+  const formatHudCommand = (cmd)=>{
+    if (!cmd || typeof cmd !== 'object') return '';
+    const t = (cmd.type||'').toUpperCase();
+    if (t === 'SHOW_MODULE') {
+      const m = (cmd.module||'').toLowerCase();
+      const map = { calendar: 'öppnar kalender', mail: 'öppnar mail', finance: 'öppnar finans', reminders: 'öppnar påminnelser', wallet: 'öppnar plånbok', video: 'öppnar video' };
+      return map[m] || 'öppnar modul';
+    }
+    if (t === 'HIDE_OVERLAY') return 'stänger overlay';
+    if (t === 'OPEN_VIDEO') return 'öppnar video';
+    return t || '';
+  };
   // Auto geolocation for weather
   useEffect(() => {
     if (!navigator?.geolocation) return;
@@ -447,7 +459,8 @@ function HUDInner() {
                   if (j && j.ok && j.command){
                     setIntents((q)=>[{ id:safeUUID(), ts:new Date().toISOString(), command: j.command }, ...q].slice(0,50));
                     dispatchRef.current && dispatchRef.current(j.command);
-                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act: ${JSON.stringify(j.command)}`}, ...J].slice(0,100));
+                    const friendly = formatHudCommand(j.command);
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`${friendly} ${JSON.stringify(j.command)}`}, ...J].slice(0,100));
                   } else {
                     setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act error: ${j?.error||'unknown'}`}, ...J].slice(0,100));
                   }
