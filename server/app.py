@@ -11,6 +11,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import logging
+from dotenv import load_dotenv
 import httpx
 import httpx
 
@@ -19,6 +20,7 @@ from .decision import EpsilonGreedyBandit, simulate_first
 from .training import stream_dataset
 
 
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
 
@@ -99,6 +101,7 @@ class ChatBody(BaseModel):
     prompt: str
     model: Optional[str] = "gpt-oss:20b"
     stream: Optional[bool] = False
+    provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
 
 
 @app.post("/api/chat")
@@ -117,25 +120,81 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         memory.append_event("chat.in", json.dumps({"prompt": body.prompt}, ensure_ascii=False))
     except Exception:
         pass
+    # Välj provider
+    provider = (body.provider or "auto").lower()
+    last_error = None
+    async def respond(text: str) -> Dict[str, Any]:
+        mem_id: Optional[int] = None
+        try:
+            tags = {"source": "chat", "model": body.model or "gpt-oss:20b", "provider": provider}
+            mem_id = memory.upsert_text_memory(text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+            memory.append_event("chat.out", json.dumps({"text": text, "memory_id": mem_id}, ensure_ascii=False))
+        except Exception:
+            pass
+        return {"ok": True, "text": text, "memory_id": mem_id}
+
+    # 1) Lokal (Ollama)
+    async def try_local():
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "http://127.0.0.1:11434/api/generate",
+                    json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    return await respond(data.get("response", ""))
+        except Exception as e:
+            return e
+        return RuntimeError("local_failed")
+
+    # 2) OpenAI
+    async def try_openai():
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return RuntimeError("openai_key_missing")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                        "messages": [
+                            {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                            {"role": "user", "content": full_prompt},
+                        ],
+                        "temperature": 0.5,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    return await respond(text)
+        except Exception as e:
+            return e
+        return RuntimeError("openai_failed")
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                "http://127.0.0.1:11434/api/generate",
-                json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
-            )
-            logger.info("ollama status=%s", r.status_code)
-            if r.status_code == 200:
-                data = r.json()
-                text = data.get("response", "")
-                mem_id: Optional[int] = None
-                try:
-                    # Spara svaret som ett minne för framtida retrieval
-                    tags = {"source": "chat", "model": body.model or "gpt-oss:20b"}
-                    mem_id = memory.upsert_text_memory(text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
-                    memory.append_event("chat.out", json.dumps({"text": text, "memory_id": mem_id}, ensure_ascii=False))
-                except Exception:
-                    pass
-                return {"ok": True, "text": text, "memory_id": mem_id}
+        if provider == "local":
+            res = await try_local()
+            if isinstance(res, dict):
+                return res
+            last_error = res
+        elif provider == "openai":
+            res = await try_openai()
+            if isinstance(res, dict):
+                return res
+            last_error = res
+        else:  # auto
+            res = await try_local()
+            if isinstance(res, dict):
+                return res
+            last_error = res
+            res = await try_openai()
+            if isinstance(res, dict):
+                return res
+            last_error = res
     except Exception:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
@@ -147,6 +206,7 @@ class ActBody(BaseModel):
     prompt: Optional[str] = ""
     model: Optional[str] = "gpt-oss:20b"
     allow: Optional[List[str]] = None  # e.g. ["SHOW_MODULE","HIDE_OVERLAY","OPEN_VIDEO"]
+    provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
 
 
 def _validate_hud_command(cmd: Dict[str, Any], allow: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
@@ -156,7 +216,26 @@ def _validate_hud_command(cmd: Dict[str, Any], allow: Optional[List[str]] = None
     if allow and ctype not in allow:
         return None
     if ctype == "SHOW_MODULE":
-        mod = (cmd.get("module") or "").lower()
+        # Normalisera svenska/alias -> interna moduler
+        raw = (cmd.get("module") or "").strip().lower()
+        alias = {
+            "kalender": "calendar",
+            "calendar": "calendar",
+            "mail": "mail",
+            "mejl": "mail",
+            "email": "mail",
+            "finans": "finance",
+            "ekonomi": "finance",
+            "finance": "finance",
+            "påminnelser": "reminders",
+            "paminnelser": "reminders",
+            "reminders": "reminders",
+            "plånbok": "wallet",
+            "planbok": "wallet",
+            "wallet": "wallet",
+            "video": "video",
+        }
+        mod = alias.get(raw, raw)
         if mod in {"calendar","mail","finance","reminders","wallet","video"}:
             return {"type": "SHOW_MODULE", "module": mod}
         return None
@@ -164,8 +243,10 @@ def _validate_hud_command(cmd: Dict[str, Any], allow: Optional[List[str]] = None
         return {"type": "HIDE_OVERLAY"}
     if ctype == "OPEN_VIDEO":
         src = cmd.get("source") or {"kind": "webcam"}
+        if isinstance(src, str):
+            src = {"kind": src}
         if isinstance(src, dict):
-            return {"type": "OPEN_VIDEO", "source": {"kind": src.get("kind", "webcam")}}
+            return {"type": "OPEN_VIDEO", "source": {"kind": (src.get("kind") or "webcam")}}
     return None
 
 
@@ -182,25 +263,58 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
     user = body.prompt or ""
     full_prompt = f"{instruction}\nAnvändarens önskemål: {user}\nJSON:"
     proposed: Optional[Dict[str, Any]] = None
-    # Försök med modell
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.post(
-                "http://127.0.0.1:11434/api/generate",
-                json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
-            )
-            if r.status_code == 200:
-                text = (r.json() or {}).get("response", "")
-                # Plocka första JSON-objekt
-                import re, json as pyjson
-                m = re.search(r"\{[\s\S]*\}", text)
-                if m:
-                    try:
-                        proposed = pyjson.loads(m.group(0))
-                    except Exception:
-                        proposed = None
-    except Exception:
-        pass
+    # Försök med modell(er)
+    provider = (body.provider or "auto").lower()
+    import re, json as pyjson
+    async def try_local():
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    "http://127.0.0.1:11434/api/generate",
+                    json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
+                )
+                if r.status_code == 200:
+                    text = (r.json() or {}).get("response", "")
+                    m = re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return pyjson.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+    async def try_openai():
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                        "messages": [
+                            {"role": "system", "content": "Svara med ENBART ett JSON-objekt med HUD-kommandot enligt specifikationen."},
+                            {"role": "user", "content": full_prompt},
+                        ],
+                        "temperature": 0.2,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    m = re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return pyjson.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    if provider == "local":
+        proposed = await try_local()
+    elif provider == "openai":
+        proposed = await try_openai()
+    else:
+        proposed = await try_local() or await try_openai()
     # Fallback: enkel regelbaserad tolkning
     if proposed is None:
         low = (user or "").lower()
