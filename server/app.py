@@ -10,12 +10,17 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import logging
+import httpx
 import httpx
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
 from .training import stream_dataset
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("jarvis")
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
 
@@ -58,15 +63,17 @@ async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
     memory.append_event("command", json.dumps(cmd.dict(), ensure_ascii=False))
     # simulate-first risk gating
     scores = simulate_first(cmd.dict())
+    logger.info("/api/jarvis/command type=%s risk=%.3f", cmd.type, scores.get("risk", 1.0))
     if scores.get("risk", 1.0) > 0.8:
         return JarvisResponse(ok=False, message="Command blocked by safety", command=cmd)
     # Optional WS broadcast for HUD when receiving explicit dispatch commands
     try:
         ctype = (cmd.type or "").lower()
         if ctype in {"dispatch", "hud"} and isinstance(cmd.payload, dict):
+            logger.info("broadcasting hud_command via WS")
             await hub.broadcast({"type": "hud_command", "command": cmd.payload})
     except Exception:
-        pass
+        logger.exception("ws broadcast failed")
     return JarvisResponse(ok=True, message="Command received", command=cmd)
 
 
@@ -88,17 +95,19 @@ class ChatBody(BaseModel):
 
 @app.post("/api/chat")
 async def chat(body: ChatBody) -> Dict[str, Any]:
+    logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.post(
                 "http://127.0.0.1:11434/api/generate",
                 json={"model": body.model or "gpt-oss:20b", "prompt": body.prompt, "stream": False},
             )
+            logger.info("ollama status=%s", r.status_code)
             if r.status_code == 200:
                 data = r.json()
                 return {"ok": True, "text": data.get("response", "")}
     except Exception:
-        pass
+        logger.exception("/api/chat error")
     return {"ok": True, "text": f"[stub] You said: {body.prompt}"}
 
 
