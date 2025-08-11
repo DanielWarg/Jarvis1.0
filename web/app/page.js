@@ -343,6 +343,12 @@ function HUDInner() {
                   try {
                     await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                     setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
+                    // Chat mot backend för svar
+                    const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query.trim(), model: 'gpt-oss:20b', stream:false })});
+                    const j = await res.json().catch(()=>null);
+                    if (j && j.text) {
+                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI: ${j.text}`}, ...J].slice(0,100));
+                    }
                   } catch (_) {}
                 }
               }} placeholder="Fråga Jarvis…" className="w-full bg-transparent text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none" />

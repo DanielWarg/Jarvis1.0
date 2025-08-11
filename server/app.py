@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import httpx
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
@@ -77,6 +78,28 @@ class ToolPickBody(BaseModel):
 async def pick_tool(body: ToolPickBody) -> Dict[str, Any]:
     choice = bandit.pick(body.candidates)
     return {"ok": True, "tool": choice}
+
+
+class ChatBody(BaseModel):
+    prompt: str
+    model: Optional[str] = "gpt-oss:20b"
+    stream: Optional[bool] = False
+
+
+@app.post("/api/chat")
+async def chat(body: ChatBody) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={"model": body.model or "gpt-oss:20b", "prompt": body.prompt, "stream": False},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                return {"ok": True, "text": data.get("response", "")}
+    except Exception:
+        pass
+    return {"ok": True, "text": f"[stub] You said: {body.prompt}"}
 
 
 class CVIngestBody(BaseModel):
