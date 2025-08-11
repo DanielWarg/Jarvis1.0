@@ -121,6 +121,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     except Exception:
         contexts = []
     ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+    ctx_payload = [it.get('text','') for it in contexts[:3] if it.get('text')]
     full_prompt = (
         ("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else ""
     ) + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
@@ -231,7 +232,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
     stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
-    return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None}
+    return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None, "contexts": ctx_payload}
 
 
 @app.post("/api/chat/stream")
@@ -244,6 +245,7 @@ async def chat_stream(body: ChatBody):
     except Exception:
         contexts = []
     ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+    ctx_payload = [it.get('text','') for it in (contexts or []) if it.get('text')][:3]
     full_prompt = (("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else "") + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
 
     provider = (body.provider or "auto").lower()
@@ -251,15 +253,15 @@ async def chat_stream(body: ChatBody):
     async def gen():
         final_text = ""
         used_provider = None
-        # Hjälpare för att skicka SSE
+        emitted = False
+
         async def sse_send(obj):
             yield f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-        # Försök OpenAI först i auto, annars explicit
-        async def try_openai_stream():
+        async def openai_stream():
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                return False
+                return
             try:
                 async with httpx.AsyncClient(timeout=None) as client:
                     r = await client.post(
@@ -277,8 +279,8 @@ async def chat_stream(body: ChatBody):
                         },
                     )
                     if r.status_code != 200:
-                        return False
-                    nonlocal final_text, used_provider
+                        return
+                    nonlocal final_text, used_provider, emitted
                     used_provider = "openai"
                     async for line in r.aiter_lines():
                         if not line:
@@ -291,16 +293,16 @@ async def chat_stream(body: ChatBody):
                                 obj = json.loads(data)
                                 delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
                                 if delta:
+                                    emitted = True
                                     final_text += delta
                                     async for out in sse_send({"type": "chunk", "text": delta}):
                                         yield out
                             except Exception:
                                 continue
-                    return True
             except Exception:
-                return False
+                return
 
-        async def try_local_stream():
+        async def local_stream():
             try:
                 async with httpx.AsyncClient(timeout=None) as client:
                     r = await client.post(
@@ -313,8 +315,8 @@ async def chat_stream(body: ChatBody):
                         },
                     )
                     if r.status_code != 200:
-                        return False
-                    nonlocal final_text, used_provider
+                        return
+                    nonlocal final_text, used_provider, emitted
                     used_provider = "local"
                     async for line in r.aiter_lines():
                         if not line:
@@ -325,23 +327,32 @@ async def chat_stream(body: ChatBody):
                                 break
                             delta = obj.get("response")
                             if delta:
+                                emitted = True
                                 final_text += delta
                                 async for out in sse_send({"type": "chunk", "text": delta}):
                                     yield out
                         except Exception:
                             continue
-                    return True
             except Exception:
-                return False
+                return
 
-        ok = False
+        # skicka meta först
+        async for out in sse_send({"type": "meta", "contexts": ctx_payload}):
+            yield out
+
         if provider == "openai":
-            ok = await try_openai_stream()
+            async for out in openai_stream():
+                yield out
         elif provider == "local":
-            ok = await try_local_stream()
+            async for out in local_stream():
+                yield out
         else:
-            # auto: försök online först för snabbhet, sedan lokal
-            ok = await try_openai_stream() or await try_local_stream()
+            # auto: försök online först, sedan lokal om inget kom
+            async for out in openai_stream():
+                yield out
+            if not emitted:
+                async for out in local_stream():
+                    yield out
 
         # done-event och minnesupsert
         mem_id = None
@@ -362,6 +373,7 @@ class ActBody(BaseModel):
     model: Optional[str] = "gpt-oss:20b"
     allow: Optional[List[str]] = None  # e.g. ["SHOW_MODULE","HIDE_OVERLAY","OPEN_VIDEO"]
     provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
+    dry_run: Optional[bool] = False
 
 
 def _validate_hud_command(cmd: Dict[str, Any], allow: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
@@ -538,8 +550,10 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
         return {"ok": False, "error": "invalid_command"}
     # Safety gate
     scores = simulate_first(cmd)
+    if body.dry_run:
+        return {"ok": True, "command": cmd, "scores": scores}
     if scores.get("risk", 1.0) > 0.8:
-        return {"ok": False, "error": "blocked_by_safety"}
+        return {"ok": False, "error": "blocked_by_safety", "scores": scores}
     try:
         await hub.broadcast({"type": "hud_command", "command": cmd})
         memory.append_event("ai.act", json.dumps({"prompt": user, "command": cmd}, ensure_ascii=False))

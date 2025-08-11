@@ -462,7 +462,7 @@ function HUDInner() {
                   if (!res.body) return;
                   const reader = res.body.getReader();
                   const dec = new TextDecoder();
-                  let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null; let gotChunk=false;
+                  let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null; let gotChunk=false; let metaShown=false;
                   setJournal((J)=>[{ id: currentId, ts:new Date().toISOString(), text:`Jarvis: `}, ...J].slice(0,100));
                   while(true){
                     const {value, done} = await reader.read(); if (done) break;
@@ -472,6 +472,11 @@ function HUDInner() {
                       if (!p.startsWith('data: ')) continue;
                       try{
                         const obj = JSON.parse(p.slice(6));
+                        if (!metaShown && obj.type === 'meta' && Array.isArray(obj.contexts)){
+                          metaShown = true;
+                          const preview = obj.contexts.filter(Boolean).slice(0,3).map((t,i)=>`[${i+1}] ${t}`).join('  ');
+                          if (preview) setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Context: ${preview}`}, ...J].slice(0,100));
+                        }
                         if (obj.type === 'chunk' && obj.text){
                           gotChunk = true;
                           setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: (item.text||'') + obj.text } : item));
