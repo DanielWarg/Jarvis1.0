@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import os
 from datetime import datetime
@@ -136,13 +137,21 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     # 1) Lokal (Ollama)
     async def try_local():
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            t0 = time.time()
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.post(
                     "http://127.0.0.1:11434/api/generate",
-                    json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
+                    json={
+                        "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
+                        "prompt": full_prompt,
+                        "stream": False,
+                        "options": {"num_predict": 256, "temperature": 0.3},
+                    },
                 )
                 if r.status_code == 200:
                     data = r.json()
+                    dt = (time.time() - t0) * 1000
+                    logger.info("chat local ms=%.0f", dt)
                     return await respond(data.get("response", ""))
         except Exception as e:
             return e
@@ -154,7 +163,8 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         if not api_key:
             return RuntimeError("openai_key_missing")
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            t0 = time.time()
+            async with httpx.AsyncClient(timeout=25.0) as client:
                 r = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -165,11 +175,14 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                             {"role": "user", "content": full_prompt},
                         ],
                         "temperature": 0.5,
+                        "max_tokens": 256,
                     },
                 )
                 if r.status_code == 200:
                     data = r.json()
                     text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    dt = (time.time() - t0) * 1000
+                    logger.info("chat openai ms=%.0f", dt)
                     return await respond(text)
         except Exception as e:
             return e
@@ -268,15 +281,22 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
     import re, json as pyjson
     async def try_local():
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            t0 = time.time()
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.post(
                     "http://127.0.0.1:11434/api/generate",
-                    json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
+                    json={
+                        "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
+                        "prompt": full_prompt,
+                        "stream": False,
+                        "options": {"num_predict": 128, "temperature": 0.2},
+                    },
                 )
                 if r.status_code == 200:
                     text = (r.json() or {}).get("response", "")
                     m = re.search(r"\{[\s\S]*\}", text)
                     if m:
+                        logger.info("ai_act local ms=%.0f", (time.time()-t0)*1000)
                         return pyjson.loads(m.group(0))
         except Exception:
             return None
@@ -286,6 +306,7 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
         if not api_key:
             return None
         try:
+            t0 = time.time()
             async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.post(
                     "https://api.openai.com/v1/chat/completions",
@@ -297,6 +318,7 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
                             {"role": "user", "content": full_prompt},
                         ],
                         "temperature": 0.2,
+                        "max_tokens": 100,
                     },
                 )
                 if r.status_code == 200:
@@ -304,6 +326,7 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
                     text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
                     m = re.search(r"\{[\s\S]*\}", text)
                     if m:
+                        logger.info("ai_act openai ms=%.0f", (time.time()-t0)*1000)
                         return pyjson.loads(m.group(0))
         except Exception:
             return None
