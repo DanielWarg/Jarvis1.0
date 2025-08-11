@@ -390,7 +390,8 @@ function HUDInner() {
                     const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false })});
                     const j = await res.json().catch(()=>null);
                     if (j && j.text) {
-                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`}, ...J].slice(0,100));
+                      const mid = j.memory_id || null;
+                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
                     } else {
                       setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                     }
@@ -413,7 +414,8 @@ function HUDInner() {
                   const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false })});
                   const j = await res.json().catch(()=>null);
                   if (j && j.text) {
-                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`}, ...J].slice(0,100));
+                    const mid = j.memory_id || null;
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
                   } else {
                     setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                   }
@@ -480,10 +482,22 @@ function HUDInner() {
                     {isJarvis && (
                       <div className="mt-2 flex gap-2">
                         <button aria-label="Jarvis up" onClick={async ()=>{
-                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: true })}); } catch(_){ }
+                          try {
+                            if (it.memoryId) {
+                              await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "memory", id: it.memoryId, up: true })});
+                            } else {
+                              await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: true })});
+                            }
+                          } catch(_){ }
                         }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
                         <button aria-label="Jarvis down" onClick={async ()=>{
-                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: false })}); } catch(_){ }
+                          try {
+                            if (it.memoryId) {
+                              await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "memory", id: it.memoryId, up: false })});
+                            } else {
+                              await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: false })});
+                            }
+                          } catch(_){ }
                         }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
                       </div>
                     )}

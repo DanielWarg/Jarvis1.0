@@ -96,19 +96,43 @@ class ChatBody(BaseModel):
 @app.post("/api/chat")
 async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
+    # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
+    try:
+        contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+    except Exception:
+        contexts = []
+    ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+    full_prompt = (
+        ("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else ""
+    ) + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+    try:
+        memory.append_event("chat.in", json.dumps({"prompt": body.prompt}, ensure_ascii=False))
+    except Exception:
+        pass
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.post(
                 "http://127.0.0.1:11434/api/generate",
-                json={"model": body.model or "gpt-oss:20b", "prompt": body.prompt, "stream": False},
+                json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
             )
             logger.info("ollama status=%s", r.status_code)
             if r.status_code == 200:
                 data = r.json()
-                return {"ok": True, "text": data.get("response", "")}
+                text = data.get("response", "")
+                mem_id: Optional[int] = None
+                try:
+                    # Spara svaret som ett minne för framtida retrieval
+                    tags = {"source": "chat", "model": body.model or "gpt-oss:20b"}
+                    mem_id = memory.upsert_text_memory(text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+                    memory.append_event("chat.out", json.dumps({"text": text, "memory_id": mem_id}, ensure_ascii=False))
+                except Exception:
+                    pass
+                return {"ok": True, "text": text, "memory_id": mem_id}
     except Exception:
         logger.exception("/api/chat error")
-    return {"ok": True, "text": f"[stub] You said: {body.prompt}"}
+    # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
+    stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
+    return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None}
 
 
 class CVIngestBody(BaseModel):
