@@ -1005,3 +1005,107 @@ async def spotify_me(access_token: str) -> Dict[str, Any]:
         logger.exception("spotify me failed")
         return {"ok": False, "error": "spotify_me_failed"}
 
+
+# Token refresh för Spotify
+class SpotifyRefreshBody(BaseModel):
+    refresh_token: str
+
+
+@app.post("/api/spotify/refresh")
+async def spotify_refresh(body: SpotifyRefreshBody) -> Dict[str, Any]:
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return {"ok": False, "error": "missing_client_config"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                SPOTIFY_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": body.refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+            )
+            r.raise_for_status()
+            token = r.json()
+            try:
+                memory.append_event("spotify.refresh", json.dumps({"ok": True}))
+            except Exception:
+                pass
+            return {"ok": True, "token": token}
+    except Exception:
+        logger.exception("spotify refresh failed")
+        return {"ok": False, "error": "refresh_failed"}
+
+
+# Lista användarens spellistor
+@app.get("/api/spotify/playlists")
+async def spotify_playlists(access_token: str, limit: Optional[int] = 20, offset: Optional[int] = 0) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"https://api.spotify.com/v1/me/playlists?limit={int(limit or 20)}&offset={int(offset or 0)}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            return {"ok": True, "playlists": r.json()}
+    except Exception:
+        logger.exception("spotify playlists failed")
+        return {"ok": False, "error": "spotify_playlists_failed"}
+
+
+# Sök låtar/playlist
+@app.get("/api/spotify/search")
+async def spotify_search(access_token: str, q: str, type: Optional[str] = "track,playlist", limit: Optional[int] = 10) -> Dict[str, Any]:
+    try:
+        qp = httpx.QueryParams({"q": q, "type": type or "track,playlist", "limit": int(limit or 10)})
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"https://api.spotify.com/v1/search?{qp}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            return {"ok": True, "result": r.json()}
+    except Exception:
+        logger.exception("spotify search failed")
+        return {"ok": False, "error": "spotify_search_failed"}
+
+
+class SpotifyPlayBody(BaseModel):
+    access_token: str
+    device_id: Optional[str] = None
+    uris: Optional[List[str]] = None
+    context_uri: Optional[str] = None
+    position_ms: Optional[int] = None
+
+
+@app.post("/api/spotify/play")
+async def spotify_play(body: SpotifyPlayBody) -> Dict[str, Any]:
+    if not body.uris and not body.context_uri:
+        return {"ok": False, "error": "missing_uris_or_context"}
+    try:
+        params = {} if not body.device_id else {"device_id": body.device_id}
+        qp = ("" if not params else ("?" + httpx.QueryParams(params).render()))
+        payload: Dict[str, Any] = {}
+        if body.uris:
+            payload["uris"] = body.uris
+        if body.context_uri:
+            payload["context_uri"] = body.context_uri
+        if body.position_ms is not None:
+            payload["position_ms"] = int(body.position_ms)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.put(
+                f"https://api.spotify.com/v1/me/player/play{qp}",
+                headers={"Authorization": f"Bearer {body.access_token}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            # 204 No Content på success
+            if r.status_code in (200, 204):
+                return {"ok": True}
+            return {"ok": False, "error": f"status_{r.status_code}", "details": r.text}
+    except Exception:
+        logger.exception("spotify play failed")
+        return {"ok": False, "error": "spotify_play_failed"}
+

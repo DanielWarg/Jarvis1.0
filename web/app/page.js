@@ -129,6 +129,154 @@ function useVoiceInput() {
   return { transcript, isListening, start, stop };
 }
 
+// Spotify Web Playback SDK + Web API kontroll
+function useSpotify() {
+  const [player, setPlayer] = useState(null);
+  const [deviceId, setDeviceId] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [track, setTrack] = useState(null);
+
+  // Hjälp: säkra access token, refresh vid behov
+  const ensureAccessToken = async () => {
+    try {
+      const access = localStorage.getItem('spotify_access_token') || '';
+      const exp = parseInt(localStorage.getItem('spotify_expires_in') || '0', 10);
+      const refresh = localStorage.getItem('spotify_refresh_token') || '';
+      const now = Date.now();
+      if (!access) return null;
+      if (exp && now < exp - 20_000) return access;
+      if (!refresh) return access; // inget refresh, returnera ändå
+      const r = await fetch('http://127.0.0.1:8000/api/spotify/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+      const j = await r.json().catch(() => null);
+      if (j && j.ok && j.token && j.token.access_token) {
+        const newAccess = j.token.access_token;
+        const expiresInSec = j.token.expires_in || 3600;
+        try { localStorage.setItem('spotify_access_token', newAccess); } catch {}
+        try { localStorage.setItem('spotify_expires_in', String(Date.now() + expiresInSec * 1000)); } catch {}
+        if (j.token.refresh_token) {
+          try { localStorage.setItem('spotify_refresh_token', j.token.refresh_token); } catch {}
+        }
+        return newAccess;
+      }
+      return access;
+    } catch {
+      return localStorage.getItem('spotify_access_token') || null;
+    }
+  };
+
+  // Ladda SDK
+  const loadSDK = async () => {
+    if (typeof window === 'undefined') return false;
+    if (window.Spotify) return true;
+    return await new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'https://sdk.scdn.co/spotify-player.js';
+      s.async = true;
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+  };
+
+  // Initiera spelaren
+  const init = async () => {
+    const ok = await loadSDK();
+    if (!ok) return false;
+    if (player) return true;
+    const tokenProvider = async (cb) => {
+      const t = await ensureAccessToken();
+      if (t && typeof cb === 'function') cb(t);
+      return t;
+    };
+    const create = () => {
+      try {
+        const p = new window.Spotify.Player({
+          name: 'Jarvis HUD',
+          getOAuthToken: (cb) => { tokenProvider(cb); },
+          volume: 0.5,
+        });
+        p.addListener('ready', ({ device_id }) => {
+          setDeviceId(device_id);
+          setConnected(true);
+        });
+        p.addListener('not_ready', ({ device_id }) => {
+          if (device_id === deviceId) setConnected(false);
+        });
+        p.addListener('player_state_changed', (state) => {
+          if (!state) return;
+          setIsPaused(state.paused);
+          setPosition(state.position || 0);
+          setDuration(state.duration || 0);
+          const cur = (state.track_window && state.track_window.current_track) || null;
+          setTrack(cur);
+        });
+        p.connect();
+        setPlayer(p);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (window.Spotify) return create();
+    window.onSpotifyWebPlaybackSDKReady = () => { create(); };
+    return true;
+  };
+
+  // Transferera uppspelning till vår enhet
+  const transferHere = async (startPlaying = true) => {
+    const t = await ensureAccessToken();
+    if (!t) return false;
+    // vänta in deviceId upp till 3s
+    let attempts = 0;
+    while (!deviceId && attempts < 30) {
+      await new Promise(r=>setTimeout(r,100));
+      attempts += 1;
+    }
+    if (!deviceId) return false;
+    try {
+      await fetch('https://api.spotify.com/v1/me/player', {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_ids: [deviceId], play: !!startPlaying })
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Kontroller
+  const togglePlay = async () => {
+    if (player && typeof player.togglePlay === 'function') {
+      try { await player.togglePlay(); } catch {}
+    } else {
+      // fallback via Web API
+      const t = await ensureAccessToken();
+      if (!t) return;
+      try { await fetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT', headers: { 'Authorization': `Bearer ${t}` } }); } catch {}
+    }
+  };
+  const next = async () => {
+    if (player && typeof player.nextTrack === 'function') {
+      try { await player.nextTrack(); } catch {}
+    } else {
+      const t = await ensureAccessToken(); if (!t) return; try { await fetch('https://api.spotify.com/v1/me/player/next', { method: 'POST', headers: { 'Authorization': `Bearer ${t}` } }); } catch {}
+    }
+  };
+  const prev = async () => {
+    if (player && typeof player.previousTrack === 'function') {
+      try { await player.previousTrack(); } catch {}
+    } else {
+      const t = await ensureAccessToken(); if (!t) return; try { await fetch('https://api.spotify.com/v1/me/player/previous', { method: 'POST', headers: { 'Authorization': `Bearer ${t}` } }); } catch {}
+    }
+  };
+
+  return { init, transferHere, connected, deviceId, isPaused, position, duration, track, togglePlay, next, prev };
+}
+
 // ────────────────────────────────────────────────────────────────────────────────
 // Command Bus / UI‑state
 const HUDContext = createContext(null);
@@ -254,6 +402,8 @@ function HUDInner() {
   useEffect(()=>{ try{ localStorage.setItem('jarvis_provider', provider); }catch(_){ } },[provider]);
   const [toolStats, setToolStats] = useState([]);
   const [journal, setJournal] = useState([]);
+  const [search, setSearch] = useState(null);
+  const [playlists, setPlaylists] = useState({ items: [] });
   const wsRef = useRef(null);
   const dispatchRef = useRef(dispatch);
   useEffect(() => { dispatchRef.current = dispatch; }, [dispatch]);
@@ -347,6 +497,10 @@ function HUDInner() {
   }, []);
   useEffect(() => { if (SAFE_BOOT) return; const id = setInterval(() => { if (typeof window !== 'undefined' && Math.random() < 0.07) dispatch({ type: "OPEN_VIDEO", source: { kind: "webcam" } }); }, 4000); return () => clearInterval(id); }, [dispatch]);
   const timeInit = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []); const [now, setNow] = useState(timeInit); useEffect(() => { const id = setInterval(() => setNow(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), 1000); return () => clearInterval(id); }, []);
+  const spotify = useSpotify();
+  useEffect(()=>{ /* no-op */ },[]);
+  const fmtTime = (ms)=>{ if(!ms) return '0:00'; const s=Math.floor(ms/1000); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; };
+
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-[#030b10] text-cyan-100">
       <ThreeBGAdvanced />
@@ -676,19 +830,103 @@ function HUDInner() {
 
           <Pane title="Media">
             <div className="flex items-center gap-4">
-              <button aria-label="Bakåt" className="rounded-full border border-cyan-400/30 p-2 hover:bg-cyan-400/10"><IconSkipBack className="h-4 w-4" /></button>
-              <button aria-label="Spela" className="rounded-full border border-cyan-400/30 p-3 hover:bg-cyan-400/10"><IconPlay className="h-5 w-5" /></button>
-              <button aria-label="Framåt" className="rounded-full border border-cyan-400/30 p-2 hover:bg-cyan-400/10"><IconSkipForward className="h-4 w-4" /></button>
-              <div className="ml-auto text-xs text-cyan-300/70">0:00 / 3:45</div>
+              <button aria-label="Bakåt" onClick={spotify.prev} className="rounded-full border border-cyan-400/30 p-2 hover:bg-cyan-400/10"><IconSkipBack className="h-4 w-4" /></button>
+              <button aria-label="Spela" onClick={spotify.togglePlay} className="rounded-full border border-cyan-400/30 p-3 hover:bg-cyan-400/10"><IconPlay className="h-5 w-5" /></button>
+              <button aria-label="Framåt" onClick={spotify.next} className="rounded-full border border-cyan-400/30 p-2 hover:bg-cyan-400/10"><IconSkipForward className="h-4 w-4" /></button>
+              <div className="ml-auto text-xs text-cyan-300/70">{fmtTime(spotify.position)} / {fmtTime(spotify.duration)}</div>
+              <button aria-label="Starta spelare" onClick={async()=>{ const ok = await spotify.init(); if (ok) { const tr = await spotify.transferHere(true); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text: tr? `Spotify: spelare redo (${spotify.deviceId})` : 'Spotify: kunde inte transferera uppspelning' }, ...J].slice(0,100)); } }} className="rounded-xl border border-green-400/30 px-3 py-1 text-xs hover:bg-green-400/10">Starta spelare</button>
               <button aria-label="Connect Spotify" onClick={async()=>{
                 try{
                   const res = await fetch('http://127.0.0.1:8000/api/spotify/auth_url');
                   const j = await res.json();
-                  if (j && j.ok && j.url){ window.location.href = j.url; }
-                  else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth error`}, ...J].slice(0,100)); }
+                  if (j && j.ok && j.url){
+                    const w = 520, h = 720; const y = (window.outerHeight - h) / 2; const x = (window.outerWidth - w) / 2;
+                    const popup = window.open(j.url, 'spotify_auth', `width=${w},height=${h},left=${Math.max(0,x)},top=${Math.max(0,y)}`);
+                    if (!popup || popup.closed){ window.location.href = j.url; return; }
+                    const handler = async (ev)=>{
+                      try{
+                        if (!ev || !ev.data || ev.data.kind !== 'spotify_auth') return;
+                        window.removeEventListener('message', handler);
+                        const { ok, access_token } = ev.data;
+                        if (!ok || !access_token){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth error`}, ...J].slice(0,100)); return; }
+                        try{ localStorage.setItem('spotify_access_token', access_token); }catch{}
+                        // Hämta profil
+                        try{
+                          const r = await fetch(`http://127.0.0.1:8000/api/spotify/me?access_token=${encodeURIComponent(access_token)}`);
+                          const mj = await r.json();
+                          if (mj && mj.ok){
+                            setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify: inloggad som ${mj.me.display_name || mj.me.id}`}, ...J].slice(0,100));
+                          } else {
+                            setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify: inloggad`}, ...J].slice(0,100));
+                          }
+                        }catch{ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify: inloggad`}, ...J].slice(0,100)); }
+                      }catch(_){ }
+                    };
+                    window.addEventListener('message', handler);
+                  } else {
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth error`}, ...J].slice(0,100));
+                  }
                 }catch(_){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth exception`}, ...J].slice(0,100)); }
               }} className="rounded-xl border border-green-400/30 px-3 py-1 text-xs hover:bg-green-400/10">Connect Spotify</button>
             </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const q=(fd.get('q')||'').toString().trim(); if(!q) return; try{ const access = localStorage.getItem('spotify_access_token')||''; if(!access){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:'Spotify: inte inloggad' }, ...J].slice(0,100)); return; } const r=await fetch(`http://127.0.0.1:8000/api/spotify/search?access_token=${encodeURIComponent(access)}&q=${encodeURIComponent(q)}&type=track,playlist&limit=8`); const j=await r.json(); if(j&&j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify: ${q} → träffar` }, ...J].slice(0,100)); setSearch({ q, items: j.result }); } }catch(_){ } }} className="rounded-xl border border-cyan-400/20 p-3">
+                <div className="text-xs text-cyan-300/80 mb-2">Sök</div>
+                <div className="flex gap-2">
+                  <input name="q" placeholder="Artist, låt eller playlist" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
+                  <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Sök</button>
+                </div>
+              </form>
+              <div className="rounded-xl border border-cyan-400/20 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs text-cyan-300/80">Spellistor</div>
+                  <button aria-label="Ladda spellistor" onClick={async()=>{ try{ const access=localStorage.getItem('spotify_access_token')||''; if(!access){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:'Spotify: inte inloggad' }, ...J].slice(0,100)); return; } const r=await fetch(`http://127.0.0.1:8000/api/spotify/playlists?access_token=${encodeURIComponent(access)}&limit=20`); const j=await r.json(); if(j&&j.ok){ setPlaylists(j.playlists); } }catch(_){ } }} className="rounded-xl border border-cyan-400/30 px-2 py-1 text-[10px] hover:bg-cyan-400/10">Uppdatera</button>
+                </div>
+                {playlists && Array.isArray(playlists.items) && playlists.items.length>0 ? (
+                  <ul className="max-h-40 overflow-auto space-y-1 text-xs text-cyan-300/80">
+                    {playlists.items.filter(Boolean).map(pl=> (
+                      <li key={pl.id || pl.uri} className="flex items-center justify-between gap-2 rounded border border-cyan-400/10 p-2">
+                        <div className="truncate text-cyan-100" title={pl?.name || ''}>{pl?.name || 'Okänd spellista'}</div>
+                        <button aria-label="Spela playlist" onClick={async()=>{ try{ const access=localStorage.getItem('spotify_access_token')||''; if(!access){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:'Spotify: inte inloggad' }, ...J].slice(0,100)); return; } await spotify.init(); await spotify.transferHere(true); const r=await fetch('http://127.0.0.1:8000/api/spotify/play',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ access_token: access, device_id: spotify.deviceId, context_uri: pl.uri })}); const j=await r.json(); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text: j&&j.ok? `Spelar: ${pl.name}` : 'Kunde inte starta playlist' }, ...J].slice(0,100)); }catch(_){ } }} className="rounded border border-green-400/30 px-2 py-0.5 text-[10px] hover:bg-green-400/10">Spela</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-[11px] text-cyan-300/60">Inga spellistor laddade</div>
+                )}
+              </div>
+            </div>
+            {search && search.items && (
+              <div className="mt-3 rounded-xl border border-cyan-400/20 p-3">
+                <div className="text-xs text-cyan-300/80 mb-2">Sökresultat</div>
+                <div className="grid gap-2">
+                  {Array.isArray(search.items?.tracks?.items) && search.items.tracks.items.filter(Boolean).slice(0,8).map(tr => (
+                    <div key={tr.id || tr.uri} className="flex items-center justify-between gap-2 rounded border border-cyan-400/10 p-2 text-xs">
+                      <div className="truncate">
+                        <div className="text-cyan-100">{tr?.name || 'Okänd låt'}</div>
+                        <div className="text-cyan-300/70">{Array.isArray(tr?.artists) ? tr.artists.map(a=>a?.name).filter(Boolean).join(', ') : ''}</div>
+                      </div>
+                      <button aria-label="Spela låt" onClick={async()=>{ try{ const access=localStorage.getItem('spotify_access_token')||''; if(!access){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:'Spotify: inte inloggad' }, ...J].slice(0,100)); return; } await spotify.init(); await spotify.transferHere(true); const r=await fetch('http://127.0.0.1:8000/api/spotify/play',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ access_token: access, device_id: spotify.deviceId, uris: [tr.uri] })}); const j=await r.json(); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text: j&&j.ok? `Spelar: ${tr.name}` : 'Kunde inte starta låt' }, ...J].slice(0,100)); }catch(_){ } }} className="rounded border border-green-400/30 px-2 py-0.5 text-[10px] hover:bg-green-400/10">Spela</button>
+                    </div>
+                  ))}
+                  {Array.isArray(search.items?.playlists?.items) && search.items.playlists.items.filter(Boolean).slice(0,6).map(pl => (
+                    <div key={pl.id || pl.uri} className="flex items-center justify-between gap-2 rounded border border-cyan-400/10 p-2 text-xs">
+                      <div className="truncate text-cyan-100">{pl?.name || 'Okänd spellista'}</div>
+                      <button aria-label="Spela playlist" onClick={async()=>{ try{ const access=localStorage.getItem('spotify_access_token')||''; if(!access){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:'Spotify: inte inloggad' }, ...J].slice(0,100)); return; } await spotify.init(); await spotify.transferHere(true); const r=await fetch('http://127.0.0.1:8000/api/spotify/play',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ access_token: access, device_id: spotify.deviceId, context_uri: pl.uri })}); const j=await r.json(); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text: j&&j.ok? `Spelar playlist: ${pl.name}` : 'Kunde inte starta playlist' }, ...J].slice(0,100)); }catch(_){ } }} className="rounded border border-green-400/30 px-2 py-0.5 text-[10px] hover:bg-green-400/10">Spela</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {spotify.track && (
+              <div className="mt-3 text-xs text-cyan-300/80">
+                <div className="text-cyan-100">{spotify.track.name}</div>
+                <div>{(spotify.track.artists||[]).map(a=>a.name).join(', ')}</div>
+              </div>
+            )}
+            {spotify.connected && (
+              <div className="mt-2 text-[10px] text-cyan-300/60">Enhet: {spotify.deviceId}</div>
+            )}
           </Pane>
         </div>
 
