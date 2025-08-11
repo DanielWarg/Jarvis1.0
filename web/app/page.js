@@ -408,7 +408,8 @@ function HUDInner() {
                     const j = await res.json().catch(()=>null);
                     if (j && j.text) {
                       const mid = j.memory_id || null;
-                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
+                      const who = j.provider === 'openai' ? 'GPT' : 'Jarvis';
+                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`${who}: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
                     } else {
                       setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                     }
@@ -432,7 +433,8 @@ function HUDInner() {
                   const j = await res.json().catch(()=>null);
                   if (j && j.text) {
                     const mid = j.memory_id || null;
-                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
+                    const who = j.provider === 'openai' ? 'GPT' : 'Jarvis';
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`${who}: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
                   } else {
                     setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                   }

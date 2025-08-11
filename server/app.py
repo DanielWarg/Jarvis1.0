@@ -124,15 +124,15 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     # Välj provider
     provider = (body.provider or "auto").lower()
     last_error = None
-    async def respond(text: str) -> Dict[str, Any]:
+    async def respond(text: str, used_provider: str, engine: Optional[str] = None) -> Dict[str, Any]:
         mem_id: Optional[int] = None
         try:
-            tags = {"source": "chat", "model": body.model or "gpt-oss:20b", "provider": provider}
+            tags = {"source": "chat", "model": body.model or "gpt-oss:20b", "provider": used_provider, "engine": engine}
             mem_id = memory.upsert_text_memory(text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
             memory.append_event("chat.out", json.dumps({"text": text, "memory_id": mem_id}, ensure_ascii=False))
         except Exception:
             pass
-        return {"ok": True, "text": text, "memory_id": mem_id}
+        return {"ok": True, "text": text, "memory_id": mem_id, "provider": used_provider, "engine": engine}
 
     # 1) Lokal (Ollama)
     async def try_local():
@@ -152,7 +152,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     data = r.json()
                     dt = (time.time() - t0) * 1000
                     logger.info("chat local ms=%.0f", dt)
-                    return await respond(data.get("response", ""))
+                    return await respond(data.get("response", ""), used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
         except Exception as e:
             return e
         return RuntimeError("local_failed")
@@ -183,7 +183,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
                     dt = (time.time() - t0) * 1000
                     logger.info("chat openai ms=%.0f", dt)
-                    return await respond(text)
+                    return await respond(text, used_provider="openai", engine=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
         except Exception as e:
             return e
         return RuntimeError("openai_failed")
@@ -224,7 +224,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
     stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
-    return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None}
+    return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None}
 
 
 class ActBody(BaseModel):
