@@ -400,20 +400,31 @@ function HUDInner() {
 
           <Pane title="Intent Queue">
             <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
-              {intents.map((it) => (
-                <li key={it.id} className="rounded border border-cyan-400/10 p-2">
-                  <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
-                  <pre className="whitespace-pre-wrap break-words text-cyan-200/90">{JSON.stringify(it.command)}</pre>
-                  <div className="mt-2 flex gap-2">
-                    <button aria-label="Feedback up" onClick={async ()=>{
-                      try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: it.command?.type || "hud_control", up: true })}); } catch(_){ }
-                    }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
-                    <button aria-label="Feedback down" onClick={async ()=>{
-                      try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: it.command?.type || "hud_control", up: false })}); } catch(_){ }
-                    }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
-                  </div>
-          </li>
-              ))}
+              {intents.map((it) => {
+                const cmd = it.command || {};
+                const isUserQuery = cmd.type === 'USER_QUERY' && cmd.payload?.query;
+                const label = isUserQuery ? `User: ${cmd.payload.query}` : (cmd.type ? `Cmd: ${cmd.type}` : 'Cmd');
+                const feedbackTool = isUserQuery ? 'chat' : (cmd.type || 'hud_control');
+                return (
+                  <li key={it.id} className="rounded border border-cyan-400/10 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
+                      <div className="truncate text-cyan-200/90 max-w-[70%]" title={label}>{label}</div>
+                    </div>
+                    {!isUserQuery && (
+                      <pre className="mt-1 whitespace-pre-wrap break-words text-cyan-200/70">{JSON.stringify(cmd)}</pre>
+                    )}
+                    <div className="mt-2 flex gap-2">
+                      <button aria-label="Feedback up" onClick={async ()=>{
+                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: true })}); } catch(_){ }
+                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
+                      <button aria-label="Feedback down" onClick={async ()=>{
+                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: false })}); } catch(_){ }
+                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </Pane>
 
