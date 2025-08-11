@@ -143,6 +143,95 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None}
 
 
+class ActBody(BaseModel):
+    prompt: Optional[str] = ""
+    model: Optional[str] = "gpt-oss:20b"
+    allow: Optional[List[str]] = None  # e.g. ["SHOW_MODULE","HIDE_OVERLAY","OPEN_VIDEO"]
+
+
+def _validate_hud_command(cmd: Dict[str, Any], allow: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(cmd, dict):
+        return None
+    ctype = (cmd.get("type") or "").upper()
+    if allow and ctype not in allow:
+        return None
+    if ctype == "SHOW_MODULE":
+        mod = (cmd.get("module") or "").lower()
+        if mod in {"calendar","mail","finance","reminders","wallet","video"}:
+            return {"type": "SHOW_MODULE", "module": mod}
+        return None
+    if ctype == "HIDE_OVERLAY":
+        return {"type": "HIDE_OVERLAY"}
+    if ctype == "OPEN_VIDEO":
+        src = cmd.get("source") or {"kind": "webcam"}
+        if isinstance(src, dict):
+            return {"type": "OPEN_VIDEO", "source": {"kind": src.get("kind", "webcam")}}
+    return None
+
+
+@app.post("/api/ai/act")
+async def ai_act(body: ActBody) -> Dict[str, Any]:
+    """Be modellen föreslå ett HUD-kommando och sänd via WS (med säkerhetsgrind)."""
+    allow = ["SHOW_MODULE","HIDE_OVERLAY","OPEN_VIDEO"] if body.allow is None else body.allow
+    instruction = (
+        "Du styr ett HUD-UI. Välj ETT av följande kommandon som JSON utan extra text: "
+        "SHOW_MODULE{\"module\": one of [calendar,mail,finance,reminders,wallet,video]}, "
+        "HIDE_OVERLAY{}, OPEN_VIDEO{\"source\":{\"kind\":\"webcam\"}}. "
+        "Svara endast med ett JSON-objekt. På svenska i val av modulnamn går bra.\n"
+    )
+    user = body.prompt or ""
+    full_prompt = f"{instruction}\nAnvändarens önskemål: {user}\nJSON:"
+    proposed: Optional[Dict[str, Any]] = None
+    # Försök med modell
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={"model": body.model or "gpt-oss:20b", "prompt": full_prompt, "stream": False},
+            )
+            if r.status_code == 200:
+                text = (r.json() or {}).get("response", "")
+                # Plocka första JSON-objekt
+                import re, json as pyjson
+                m = re.search(r"\{[\s\S]*\}", text)
+                if m:
+                    try:
+                        proposed = pyjson.loads(m.group(0))
+                    except Exception:
+                        proposed = None
+    except Exception:
+        pass
+    # Fallback: enkel regelbaserad tolkning
+    if proposed is None:
+        low = (user or "").lower()
+        if any(k in low for k in ["stäng", "hide", "close"]):
+            proposed = {"type": "HIDE_OVERLAY"}
+        elif any(k in low for k in ["video", "kamera"]):
+            proposed = {"type": "OPEN_VIDEO", "source": {"kind": "webcam"}}
+        elif any(k in low for k in ["kalender", "calendar"]):
+            proposed = {"type": "SHOW_MODULE", "module": "calendar"}
+        elif any(k in low for k in ["mail", "mejl"]):
+            proposed = {"type": "SHOW_MODULE", "module": "mail"}
+        else:
+            # sista utväg: visa finance som demo
+            proposed = {"type": "SHOW_MODULE", "module": "finance"}
+
+    cmd = _validate_hud_command(proposed, allow=allow)
+    if not cmd:
+        return {"ok": False, "error": "invalid_command"}
+    # Safety gate
+    scores = simulate_first(cmd)
+    if scores.get("risk", 1.0) > 0.8:
+        return {"ok": False, "error": "blocked_by_safety"}
+    try:
+        await hub.broadcast({"type": "hud_command", "command": cmd})
+        memory.append_event("ai.act", json.dumps({"prompt": user, "command": cmd}, ensure_ascii=False))
+    except Exception:
+        logger.exception("ai_act broadcast failed")
+        return {"ok": False, "error": "broadcast_failed"}
+    return {"ok": True, "command": cmd}
+
+
 class CVIngestBody(BaseModel):
     source: str
     meta: Optional[Dict[str, Any]] = None
@@ -345,6 +434,12 @@ class MemoryRecentBody(BaseModel):
 @app.post("/api/memory/recent")
 async def memory_recent(body: MemoryRecentBody) -> Dict[str, Any]:
     items = memory.get_recent_text_memories(limit=body.limit or 10)
+    return {"ok": True, "items": items}
+
+
+@app.get("/api/tools/stats")
+async def tools_stats() -> Dict[str, Any]:
+    items = memory.get_all_tool_stats()
     return {"ok": True, "items": items}
 
 

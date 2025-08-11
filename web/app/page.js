@@ -248,6 +248,8 @@ function HUDInner() {
   const [currentWeather, setCurrentWeather] = useState(null);
   const [geoCity, setGeoCity] = useState(null);
   const [intents, setIntents] = useState([]);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [toolStats, setToolStats] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);
   const dispatchRef = useRef(dispatch);
@@ -438,6 +440,19 @@ function HUDInner() {
                   dispatchRef.current && dispatchRef.current(cmd);
                 }catch(_){ }
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Auto</button>
+              <button aria-label="AI Act" onClick={async ()=>{
+                try{
+                  const res = await fetch('http://127.0.0.1:8000/api/ai/act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query || 'visa kalender', allow: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'] })});
+                  const j = await res.json();
+                  if (j && j.ok && j.command){
+                    setIntents((q)=>[{ id:safeUUID(), ts:new Date().toISOString(), command: j.command }, ...q].slice(0,50));
+                    dispatchRef.current && dispatchRef.current(j.command);
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act: ${JSON.stringify(j.command)}`}, ...J].slice(0,100));
+                  } else {
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act error: ${j?.error||'unknown'}`}, ...J].slice(0,100));
+                  }
+                }catch(err){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act exception`}, ...J].slice(0,100)); }
+              }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">AI‑Act</button>
             </div>
           </Pane>
 
@@ -580,11 +595,40 @@ function HUDInner() {
           </Pane>
 
           <Pane title="History">
-            <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const q=(fd.get('q')||'').toString(); try{ const res=await fetch('http://127.0.0.1:8000/api/memory/retrieve',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query: q, limit: 10 })}); const j=await res.json(); if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`History(${q||'*'}): ${j.items.length} hits`}, ...J].slice(0,100)); } }catch(_){ } }} className="flex gap-2">
+            <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const q=(fd.get('q')||'').toString(); try{ const res=await fetch('http://127.0.0.1:8000/api/memory/retrieve',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query: q, limit: 10 })}); const j=await res.json(); if(j && j.ok){ setHistoryItems(j.items||[]); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`History(${q||'*'}): ${j.items.length} träffar`}, ...J].slice(0,100)); } }catch(_){ } }} className="flex gap-2">
               <input name="q" placeholder="Sök minnen…" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
               <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Sök</button>
-              <button type="button" onClick={async()=>{ try{ const r=await fetch('http://127.0.0.1:8000/api/memory/recent',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ limit: 10 })}); const j=await r.json(); if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Recent: ${j.items.length} items`}, ...J].slice(0,100)); } }catch(_){ } }} className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Recent</button>
+              <button type="button" onClick={async()=>{ try{ const r=await fetch('http://127.0.0.1:8000/api/memory/recent',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ limit: 10 })}); const j=await r.json(); if(j && j.ok){ setHistoryItems(j.items||[]); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Recent: ${j.items.length} st`}, ...J].slice(0,100)); } }catch(_){ } }} className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Recent</button>
             </form>
+            {historyItems.length>0 && (
+              <ul className="mt-3 space-y-1 max-h-40 overflow-auto text-xs text-cyan-300/80">
+                {historyItems.map((m)=> (
+                  <li key={m.id} className="rounded border border-cyan-400/10 p-2 hover:bg-cyan-400/5">
+                    <button aria-label="Använd minne" onClick={()=> setQuery((m.text||''))} className="text-left w-full">
+                      <div className="truncate text-cyan-100" title={m.text||''}>{m.text||''}</div>
+                      <div className="mt-1 text-[10px] text-cyan-300/60">{new Date(m.ts).toLocaleString()}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Pane>
+
+          <Pane title="Tool Stats">
+            <div className="flex gap-2">
+              <button aria-label="Uppdatera stats" onClick={async()=>{ try{ const r=await fetch('http://127.0.0.1:8000/api/tools/stats'); const j=await r.json(); if(j && j.ok){ setToolStats(j.items||[]); } }catch(_){ } }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Uppdatera</button>
+            </div>
+            {toolStats.length>0 && (
+              <ul className="mt-3 space-y-1 max-h-40 overflow-auto text-xs text-cyan-300/80">
+                {toolStats.map((t)=>{ const total=(t.success||0)+(t.fail||0); const rate= total? Math.round((t.success/total)*100):0; return (
+                  <li key={t.tool} className="grid grid-cols-4 gap-2 rounded border border-cyan-400/10 p-2">
+                    <div className="col-span-2 text-cyan-100 truncate" title={t.tool}>{t.tool}</div>
+                    <div className="text-cyan-300/80">{t.success}/{total}</div>
+                    <div className="text-cyan-300/80">{rate}%</div>
+                  </li>
+                );})}
+              </ul>
+            )}
           </Pane>
         </div>
       </main>
