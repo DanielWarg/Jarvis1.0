@@ -430,22 +430,25 @@ function HUDInner() {
 
           <Pane title="Journal">
             <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
-              {journal.map((it) => (
-                <li key={it.id} className="rounded border border-cyan-400/10 p-2">
-                  <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
-                  <div className="text-cyan-200/90 break-words">{it.text}</div>
-                  {it.memId && (
-                    <div className="mt-2 flex gap-2">
-                      <button aria-label="Memory up" onClick={async ()=>{
-                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "memory", id: it.memId, up: true })}); } catch(_){ }
-                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
-                      <button aria-label="Memory down" onClick={async ()=>{
-                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "memory", id: it.memId, up: false })}); } catch(_){ }
-                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
-                    </div>
-                  )}
-          </li>
-              ))}
+              {journal.map((it) => {
+                const isJarvis = typeof it.text === 'string' && it.text.startsWith('Jarvis:');
+                return (
+                  <li key={it.id} className="rounded border border-cyan-400/10 p-2">
+                    <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
+                    <div className="text-cyan-200/90 break-words">{it.text}</div>
+                    {isJarvis && (
+                      <div className="mt-2 flex gap-2">
+                        <button aria-label="Jarvis up" onClick={async ()=>{
+                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: true })}); } catch(_){ }
+                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
+                        <button aria-label="Jarvis down" onClick={async ()=>{
+                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: false })}); } catch(_){ }
+                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </Pane>
 
