@@ -147,6 +147,32 @@ async def training_dump():
     return ORJSONResponse(gen(), media_type="application/x-ndjson")
 
 
+class WeatherQuery(BaseModel):
+    lat: float
+    lon: float
+
+
+@app.post("/api/weather/current")
+async def weather_current(body: WeatherQuery) -> Dict[str, Any]:
+    """Proxar Open‑Meteo för enkel väderhämtning utan API‑nyckel."""
+    url = (
+        "https://api.open-meteo.com/v1/forecast?"\
+        f"latitude={body.lat}&longitude={body.lon}&current=temperature_2m,weather_code"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+            cur = (data or {}).get("current") or {}
+            temp = cur.get("temperature_2m")
+            code = cur.get("weather_code")
+            return {"ok": True, "temperature": temp, "code": code}
+    except Exception as e:
+        logger.exception("weather fetch failed")
+        return {"ok": False, "error": str(e)}
+
+
 class MemoryUpsert(BaseModel):
     text: str
     score: Optional[float] = 0.0
