@@ -339,26 +339,48 @@ function HUDInner() {
               <IconSearch className="h-4 w-4 text-cyan-300/70" />
               <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={async (e) => {
                 if (e.key === "Enter" && query.trim()) {
-                  const body = { type: "USER_QUERY", payload: { query: query.trim() } };
+                  const q = query.trim();
+                  setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`You: ${q}`}, ...J].slice(0,100));
+                  const body = { type: "USER_QUERY", payload: { query: q } };
                   try {
                     await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                     setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
                     // Chat mot backend för svar
-                    const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query.trim(), model: 'gpt-oss:20b', stream:false })});
+                    const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false })});
                     const j = await res.json().catch(()=>null);
                     if (j && j.text) {
-                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI: ${j.text}`}, ...J].slice(0,100));
+                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`}, ...J].slice(0,100));
+                    } else {
+                      setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                     }
-                  } catch (_) {}
+                  } catch (err) {
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Error sending: ${String(err)}`}, ...J].slice(0,100));
+                  } finally {
+                    setQuery("");
+                  }
                 }
               }} placeholder="Fråga Jarvis…" className="w-full bg-transparent text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none" />
               <button aria-label="Sök" onClick={async ()=> {
                 if (!query.trim()) return;
-                const body = { type: "USER_QUERY", payload: { query: query.trim() } };
+                const q = query.trim();
+                setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`You: ${q}`}, ...J].slice(0,100));
+                const body = { type: "USER_QUERY", payload: { query: q } };
                 try {
                   await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                   setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
-                } catch (_) {}
+                  // Trigga chat även via Go-knappen
+                  const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false })});
+                  const j = await res.json().catch(()=>null);
+                  if (j && j.text) {
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: ${j.text}`}, ...J].slice(0,100));
+                  } else {
+                    setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
+                  }
+                } catch (err) {
+                  setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Error sending: ${String(err)}`}, ...J].slice(0,100));
+                } finally {
+                  setQuery("");
+                }
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
               <button aria-label="Auto Decide" onClick={async ()=>{
                 try{
