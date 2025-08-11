@@ -1072,6 +1072,46 @@ async def spotify_state(access_token: str) -> Dict[str, Any]:
         return {"ok": False, "error": "spotify_state_failed"}
 
 
+@app.get("/api/spotify/current")
+async def spotify_current(access_token: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.spotify.com/v1/me/player/currently-playing",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 204:
+                return {"ok": True, "item": None}
+            r.raise_for_status()
+            return {"ok": True, "item": r.json()}
+    except Exception:
+        logger.exception("spotify current failed")
+        return {"ok": False, "error": "spotify_current_failed"}
+
+
+@app.get("/api/spotify/recommendations")
+async def spotify_recommendations(access_token: str, seed_tracks: Optional[str] = None, seed_artists: Optional[str] = None, seed_genres: Optional[str] = None, limit: Optional[int] = 5) -> Dict[str, Any]:
+    try:
+        params: Dict[str, Any] = {"limit": int(limit or 5)}
+        if seed_tracks:
+            params["seed_tracks"] = seed_tracks
+        if seed_artists:
+            params["seed_artists"] = seed_artists
+        if seed_genres:
+            params["seed_genres"] = seed_genres
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.spotify.com/v1/recommendations",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
+            r.raise_for_status()
+            return {"ok": True, "recs": r.json()}
+    except Exception:
+        logger.exception("spotify recommendations failed")
+        return {"ok": False, "error": "spotify_recommendations_failed"}
+
+
 # Lista användarens spellistor
 @app.get("/api/spotify/playlists")
 async def spotify_playlists(access_token: str, limit: Optional[int] = 20, offset: Optional[int] = 0) -> Dict[str, Any]:
@@ -1177,4 +1217,347 @@ async def spotify_queue(body: SpotifyQueueBody) -> Dict[str, Any]:
     except Exception as e:
         logger.exception("spotify queue failed")
         return {"ok": False, "error": "spotify_queue_failed", "message": str(e)}
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# AI‑driven media‑akt (NL → spela låt/playlist på Spotify)
+class MediaActBody(BaseModel):
+    prompt: str
+    access_token: str
+    device_id: Optional[str] = None
+    provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
+
+
+@app.post("/api/ai/media_act")
+async def ai_media_act(body: MediaActBody) -> Dict[str, Any]:
+    """Tolka prompten och spela upp via Spotify.
+    Förväntat JSON från modellen:
+    {"action":"play_track","track":"Back In Black","artist":"AC/DC"}
+    eller {"action":"play_playlist","playlist":"Hard Rock Classics"}
+    """
+    if not body.access_token:
+        return {"ok": False, "error": "missing_access_token"}
+
+    instruction = (
+        "Du får en svensk text om musikuppspelning. Svara ENBART med ett JSON-objekt utan förklaring. "
+        "Fält: action = 'play_track' | 'play_playlist'. För play_track: 'track' (namn), valfritt 'artist'. "
+        "För play_playlist: 'playlist' (namn). Exempel: {\"action\":\"play_track\",\"track\":\"Back In Black\",\"artist\":\"AC/DC\"}."
+    )
+    provider = (body.provider or "auto").lower()
+
+    import re as _re
+
+    async def try_local():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    "http://127.0.0.1:11434/api/generate",
+                    json={
+                        "model": os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
+                        "prompt": f"{instruction}\n\nAnvändarens önskemål: {body.prompt}\nJSON:",
+                        "stream": False,
+                        "options": {"num_predict": 128, "temperature": 0.2},
+                    },
+                )
+                if r.status_code == 200:
+                    text = (r.json() or {}).get("response", "")
+                    m = _re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return json.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    async def try_openai():
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                        "messages": [
+                            {"role": "system", "content": instruction},
+                            {"role": "user", "content": body.prompt},
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 100,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    m = _re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return json.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    parsed = None
+    if provider == "local":
+        parsed = await try_local()
+    elif provider == "openai":
+        parsed = await try_openai()
+    else:
+        t1 = asyncio.create_task(try_openai())
+        t2 = asyncio.create_task(try_local())
+        done, pending = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
+        for d in done:
+            val = d.result()
+            if val:
+                parsed = val
+        for p in pending:
+            try:
+                val = await p
+                if not parsed and val:
+                    parsed = val
+            except asyncio.CancelledError:
+                pass
+
+    if not isinstance(parsed, dict):
+        # Heuristisk fallback: tolka "spela X med Y" → play_track
+        low = (body.prompt or "").strip().lower()
+        try:
+            import re as _re
+            m = _re.search(r"spela\s+(.+?)(?:\s+med\s+(.+))?$", low)
+            if m:
+                track_guess = (m.group(1) or "").strip()
+                artist_guess = (m.group(2) or "").strip()
+                parsed = {"action": "play_track", "track": track_guess}
+                if artist_guess:
+                    parsed["artist"] = artist_guess
+            else:
+                parsed = {"action": "play_track", "track": low.replace("spela", "").strip()}
+        except Exception:
+            return {"ok": False, "error": "parse_failed"}
+
+    action = (parsed.get("action") or "").lower()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if action == "play_track":
+                q = (parsed.get("track") or "").strip()
+                artist = (parsed.get("artist") or "").strip()
+                if not q:
+                    return {"ok": False, "error": "missing_track"}
+                query = f"{q} artist:{artist}" if artist else q
+                sr = await client.get(
+                    f"https://api.spotify.com/v1/search",
+                    params={"q": query, "type": "track", "limit": 5},
+                    headers={"Authorization": f"Bearer {body.access_token}"},
+                )
+                sr.raise_for_status()
+                data = sr.json() or {}
+                items = (data.get("tracks") or {}).get("items") or []
+                # Om artist inte angavs men prompten innehåller en favorit: använd recommendations med seed på artist
+                if not items and artist:
+                    # hämta artist-id
+                    ar = await client.get(
+                        "https://api.spotify.com/v1/search",
+                        params={"q": artist, "type": "artist", "limit": 1},
+                        headers={"Authorization": f"Bearer {body.access_token}"},
+                    )
+                    if ar.status_code == 200:
+                        aid = (((ar.json() or {}).get("artists") or {}).get("items") or [{}])[0].get("id")
+                        if aid:
+                            rr = await client.get(
+                                "https://api.spotify.com/v1/recommendations",
+                                params={"seed_artists": aid, "limit": 5},
+                                headers={"Authorization": f"Bearer {body.access_token}"},
+                            )
+                            if rr.status_code == 200:
+                                items = ((rr.json() or {}).get("tracks") or [])
+                if not items:
+                    return {"ok": False, "error": "no_track_results"}
+                uri = (items[0] or {}).get("uri")
+                pr = await client.put(
+                    f"https://api.spotify.com/v1/me/player/play",
+                    params={"device_id": body.device_id} if body.device_id else None,
+                    headers={"Authorization": f"Bearer {body.access_token}", "Content-Type": "application/json"},
+                    json={"uris": [uri], "position_ms": 0},
+                )
+                if pr.status_code not in (200, 204):
+                    return {"ok": False, "error": f"status_{pr.status_code}", "details": pr.text}
+                return {"ok": True, "played": {"kind": "track", "uri": uri}}
+
+            if action == "play_playlist":
+                name = (parsed.get("playlist") or "").strip()
+                if not name:
+                    return {"ok": False, "error": "missing_playlist"}
+                sr = await client.get(
+                    f"https://api.spotify.com/v1/search",
+                    params={"q": name, "type": "playlist", "limit": 5},
+                    headers={"Authorization": f"Bearer {body.access_token}"},
+                )
+                sr.raise_for_status()
+                items = ((sr.json() or {}).get("playlists") or {}).get("items") or []
+                if not items:
+                    return {"ok": False, "error": "no_playlist_results"}
+                ctx = (items[0] or {}).get("uri")
+                pr = await client.put(
+                    f"https://api.spotify.com/v1/me/player/play",
+                    params={"device_id": body.device_id} if body.device_id else None,
+                    headers={"Authorization": f"Bearer {body.access_token}", "Content-Type": "application/json"},
+                    json={"context_uri": ctx, "position_ms": 0, "offset": {"position": 0}},
+                )
+                if pr.status_code not in (200, 204):
+                    return {"ok": False, "error": f"status_{pr.status_code}", "details": pr.text}
+                return {"ok": True, "played": {"kind": "playlist", "uri": ctx}}
+    except Exception as e:
+        logger.exception("ai_media_act failed")
+        return {"ok": False, "error": "media_act_failed", "message": str(e)}
+
+    return {"ok": False, "error": "unsupported_action"}
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# En enda AI-router som väljer chat / HUD‑akt / media‑akt
+class RouteBody(BaseModel):
+    prompt: str
+    provider: Optional[str] = "auto"
+    hud_allow: Optional[List[str]] = ["SHOW_MODULE","OPEN_VIDEO","HIDE_OVERLAY"]
+    spotify_access_token: Optional[str] = None
+    spotify_device_id: Optional[str] = None
+
+
+@app.post("/api/ai/route")
+async def ai_route(body: RouteBody) -> Dict[str, Any]:
+    instr = (
+        "Klassificera användarens avsikt och svara ENDAST med JSON.\n"
+        "Fält: intent in ['chat','hud','media_track','media_playlist'].\n"
+        "Om media_track: ge 'track' och ev 'artist'. Om media_playlist: ge 'playlist'.\n"
+        "Om hud: ge 'text' som beskriver vad HUD ska göra (svenska).\n"
+    )
+    provider = (body.provider or "auto").lower()
+
+    import re as _re
+
+    async def classify_local():
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                r = await client.post(
+                    "http://127.0.0.1:11434/api/generate",
+                    json={
+                        "model": os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
+                        "prompt": f"{instr}\n\nAnvändarens text: {body.prompt}\nJSON:",
+                        "stream": False,
+                        "options": {"num_predict": 100, "temperature": 0.2},
+                    },
+                )
+                if r.status_code == 200:
+                    text = (r.json() or {}).get("response", "")
+                    m = _re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return json.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    async def classify_openai():
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                        "messages": [
+                            {"role": "system", "content": instr},
+                            {"role": "user", "content": body.prompt},
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 80,
+                    },
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    text = ((d.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    m = _re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        return json.loads(m.group(0))
+        except Exception:
+            return None
+        return None
+
+    parsed = None
+    if provider == "local":
+        parsed = await classify_local()
+    elif provider == "openai":
+        parsed = await classify_openai()
+    else:
+        t1 = asyncio.create_task(classify_openai())
+        t2 = asyncio.create_task(classify_local())
+        done, pending = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
+        for d in done:
+            v = d.result()
+            if v:
+                parsed = v
+        for p in pending:
+            try:
+                v = await p
+                if not parsed and v:
+                    parsed = v
+            except asyncio.CancelledError:
+                pass
+
+    # Heuristik om LLM fallerar
+    if not isinstance(parsed, dict):
+        low = (body.prompt or "").lower()
+        if low.startswith("spela") or " spela " in low:
+            parsed = {"intent": "media_track"}
+        elif any(k in low for k in ["visa","öppna","stäng","open","close"]):
+            parsed = {"intent": "hud"}
+        else:
+            parsed = {"intent": "chat"}
+
+    intent = (parsed.get("intent") or "chat").lower()
+    # Route
+    if intent in {"media_track","media_playlist"}:
+        if not body.spotify_access_token:
+            return {"ok": False, "error": "missing_spotify_token"}
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                rr = await client.post(
+                    "http://127.0.0.1:8000/api/ai/media_act",
+                    json={
+                        "prompt": body.prompt,
+                        "access_token": body.spotify_access_token,
+                        "device_id": body.spotify_device_id,
+                        "provider": provider,
+                    },
+                )
+                return {"ok": True, "kind": "media", "result": rr.json()}
+        except Exception:
+            logger.exception("route->media failed")
+            return {"ok": False, "error": "route_media_failed"}
+
+    if intent == "hud":
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                rr = await client.post(
+                    "http://127.0.0.1:8000/api/ai/act",
+                    json={"prompt": body.prompt, "allow": body.hud_allow, "provider": provider},
+                )
+                return {"ok": True, "kind": "hud", "result": rr.json()}
+        except Exception:
+            logger.exception("route->hud failed")
+            return {"ok": False, "error": "route_hud_failed"}
+
+    # default chat
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            rr = await client.post(
+                "http://127.0.0.1:8000/api/chat",
+                json={"prompt": body.prompt, "provider": provider},
+            )
+            return {"ok": True, "kind": "chat", "result": rr.json()}
+    except Exception:
+        logger.exception("route->chat failed")
+        return {"ok": False, "error": "route_chat_failed"}
 

@@ -574,6 +574,20 @@ function HUDInner() {
                 if (e.key === "Enter" && query.trim()) {
                   const q = query.trim();
                   setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`You: ${q}`}, ...J].slice(0,100));
+                  // Media-intent: låt AI styra uppspelning om frågan ser ut som "spela ..."
+                  try{
+                    const low = q.toLowerCase();
+                    if (low.startsWith('spela') || low.includes(' spela ')){
+                      const access = localStorage.getItem('spotify_access_token')||'';
+                      if (access){
+                        await spotify.init(); await spotify.transferHere(false);
+                        const r = await fetch('http://127.0.0.1:8000/api/ai/media_act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, access_token: access, device_id: spotify.deviceId, provider })});
+                        const mj = await r.json().catch(()=>null);
+                        if (mj && mj.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`MediaAct: spelade ${mj.played?.kind||'ok'}`}, ...J].slice(0,100)); setQuery(""); return; }
+                        else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`MediaAct error: ${mj?.error||'unknown'}`}, ...J].slice(0,100)); setQuery(""); return; }
+                      }
+                    }
+                  }catch(_){ }
                   const body = { type: "USER_QUERY", payload: { query: q } };
                   try {
                     await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
