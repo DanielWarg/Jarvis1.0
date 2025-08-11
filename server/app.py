@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 import httpx
 import httpx
 import math
+import base64
+from urllib.parse import urlencode
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
@@ -922,4 +924,84 @@ async def on_startup() -> None:
     # Start autonomous loop (non-blocking)
     asyncio.create_task(ai_autonomous_loop())
 
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Spotify OAuth (Authorization Code)
+
+SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
+SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
+
+
+class SpotifyAuthBody(BaseModel):
+    scopes: Optional[List[str]] = None
+
+
+@app.get("/api/spotify/auth_url")
+async def spotify_auth_url(scopes: Optional[str] = None) -> Dict[str, Any]:
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:3100/spotify/callback")
+    if not client_id:
+        return {"ok": False, "error": "missing_client_id"}
+    scope_str = scopes or " ".join([
+        "streaming",
+        "user-read-email",
+        "user-read-private",
+        "user-read-playback-state",
+        "user-modify-playback-state",
+        "user-read-currently-playing",
+        "playlist-read-private",
+        "playlist-modify-private",
+        "playlist-modify-public",
+    ])
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "scope": scope_str,
+        "redirect_uri": redirect_uri,
+        "show_dialog": "true",
+    }
+    return {"ok": True, "url": f"{SPOTIFY_AUTH_URL}?{urlencode(params)}"}
+
+
+@app.get("/api/spotify/callback")
+async def spotify_callback(code: Optional[str] = None, state: Optional[str] = None) -> Dict[str, Any]:
+    if not code:
+        return {"ok": False, "error": "missing_code"}
+    client_id = os.getenv("SPOTIFY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+    redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:3100/spotify/callback")
+    if not client_id or not client_secret:
+        return {"ok": False, "error": "missing_client_config"}
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(SPOTIFY_TOKEN_URL, data=data)
+            r.raise_for_status()
+            token = r.json()
+    except Exception:
+        logger.exception("spotify token exchange failed")
+        return {"ok": False, "error": "token_exchange_failed"}
+    try:
+        memory.append_event("spotify.tokens", json.dumps({"received": True}))
+    except Exception:
+        pass
+    return {"ok": True, "token": token}
+
+
+@app.get("/api/spotify/me")
+async def spotify_me(access_token: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://api.spotify.com/v1/me", headers={"Authorization": f"Bearer {access_token}"})
+            r.raise_for_status()
+            return {"ok": True, "me": r.json()}
+    except Exception:
+        logger.exception("spotify me failed")
+        return {"ok": False, "error": "spotify_me_failed"}
 

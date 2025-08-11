@@ -680,6 +680,14 @@ function HUDInner() {
               <button aria-label="Spela" className="rounded-full border border-cyan-400/30 p-3 hover:bg-cyan-400/10"><IconPlay className="h-5 w-5" /></button>
               <button aria-label="Framåt" className="rounded-full border border-cyan-400/30 p-2 hover:bg-cyan-400/10"><IconSkipForward className="h-4 w-4" /></button>
               <div className="ml-auto text-xs text-cyan-300/70">0:00 / 3:45</div>
+              <button aria-label="Connect Spotify" onClick={async()=>{
+                try{
+                  const res = await fetch('http://127.0.0.1:8000/api/spotify/auth_url');
+                  const j = await res.json();
+                  if (j && j.ok && j.url){ window.location.href = j.url; }
+                  else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth error`}, ...J].slice(0,100)); }
+                }catch(_){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Spotify auth exception`}, ...J].slice(0,100)); }
+              }} className="rounded-xl border border-green-400/30 px-3 py-1 text-xs hover:bg-green-400/10">Connect Spotify</button>
             </div>
           </Pane>
         </div>
