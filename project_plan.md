@@ -139,6 +139,22 @@
   - [ ] Emotional intelligence
   - [ ] Personality adaptation
 
+### Phase 5.1: Media Integration – Spotify (PLANNED)
+- [ ] App-registrering i Spotify Developer Dashboard (Client ID/Secret, Redirect URIs)
+- [ ] OAuth Authorization Code with PKCE (scopes: user-read-playback-state, user-modify-playback-state, user-read-currently-playing, playlist-read-private, playlist-modify-private, playlist-modify-public, user-read-recently-played)
+- [ ] Backend proxy för tokenutbyte och säker lagring/refresh av tokens
+- [ ] Web Playback SDK i HUD (Premium‑krav) med device‑väljare och fallback till Connect‑enhet
+- [ ] API-stöd i backend för Spotify Web API: playback (start/pause/next/prev/seek/volume/shuffle/repeat), queue, search, playlists (CRUD), currently playing
+- [ ] HUD Media‑panel: Connect‑knapp, nu spelas, transportkontroller, volym, progress, kö, sök + lägg till i spellista
+- [ ] Telemetri: logga latens, rate limits, fel; backoff/retry
+- [ ] Säkerhet: krypterad token‑lagring, minst behöriga scopes, logout/revoke
+
+#### Acceptance (Spotify)
+- [ ] Inloggning via Spotify fungerar, token refresh sker automatiskt
+- [ ] HUD kan spela/pausa/hoppa/ändra volym och visa nu spelas
+- [ ] Sök och lägg till spår i kö/spellista fungerar
+- [ ] Playback fungerar via Web Playback SDK eller vald Connect‑enhet
+
 ### Phase 6: Distributed Intelligence (FUTURE)
 - [ ] **AI Agent Network**
   - [ ] Multiple specialized AI agents
