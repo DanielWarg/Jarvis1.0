@@ -250,6 +250,18 @@ function HUDInner() {
   const wsRef = useRef(null);
   const dispatchRef = useRef(dispatch);
   useEffect(() => { dispatchRef.current = dispatch; }, [dispatch]);
+  // Auto geolocation for weather
+  useEffect(() => {
+    if (!navigator?.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const lat = pos.coords.latitude; const lon = pos.coords.longitude;
+      try{
+        const res = await fetch('http://127.0.0.1:8000/api/weather/current',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })});
+        const j = await res.json().catch(()=>null);
+        if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather: ${j.temperature}°C (code ${j.code}) @ ${lat.toFixed(3)},${lon.toFixed(3)}`}, ...J].slice(0,100)); }
+      }catch(_){ }
+    });
+  }, []);
 
   // WS-klient till backend
   useEffect(() => {

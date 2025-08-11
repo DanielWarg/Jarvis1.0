@@ -173,6 +173,31 @@ async def weather_current(body: WeatherQuery) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+@app.post("/api/weather/openweather")
+async def weather_openweather(body: WeatherQuery) -> Dict[str, Any]:
+    api_key = os.getenv("OPENWEATHER_API_KEY")
+    if not api_key:
+        return {"ok": False, "error": "OPENWEATHER_API_KEY missing"}
+    url = (
+        "https://api.openweathermap.org/data/2.5/weather?"\
+        f"lat={body.lat}&lon={body.lon}&units=metric&appid={api_key}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+            main = (data or {}).get("main") or {}
+            weather = ((data or {}).get("weather") or [{}])[0]
+            temp = main.get("temp")
+            desc = weather.get("description")
+            code = weather.get("id")
+            return {"ok": True, "temperature": temp, "code": code, "description": desc}
+    except Exception as e:
+        logger.exception("openweather fetch failed")
+        return {"ok": False, "error": str(e)}
+
+
 class MemoryUpsert(BaseModel):
     text: str
     score: Optional[float] = 0.0
