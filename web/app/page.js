@@ -245,6 +245,7 @@ function TodoList({ todos, onToggle, onRemove, onAdd }) {
 export default function JarvisHUD() { return (<ErrorBoundary><HUDProvider><HUDInner /></HUDProvider></ErrorBoundary>); }
 function HUDInner() {
   const { cpu, mem, net } = useSystemMetrics(); const weather = useWeatherStub(); const { todos, add, toggle, remove } = useTodos(); const { transcript, isListening, start, stop } = useVoiceInput(); const [query, setQuery] = useState(""); const { globalError } = useGlobalErrorCatcher(); const { dispatch } = useHUD();
+  const [currentWeather, setCurrentWeather] = useState(null);
   const [intents, setIntents] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);
@@ -258,7 +259,17 @@ function HUDInner() {
       try{
         const res = await fetch('http://127.0.0.1:8000/api/weather/current',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })});
         const j = await res.json().catch(()=>null);
-        if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather: ${j.temperature}°C (code ${j.code}) @ ${lat.toFixed(3)},${lon.toFixed(3)}`}, ...J].slice(0,100)); }
+        if(j && j.ok){
+          setCurrentWeather((w)=>({ ...(w||{}), temp: j.temperature, code: j.code }));
+          setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather: ${j.temperature}°C (code ${j.code}) @ ${lat.toFixed(3)},${lon.toFixed(3)}`}, ...J].slice(0,100));
+        }
+        // Försök även OpenWeather om nyckel finns på servern
+        const ow = await fetch('http://127.0.0.1:8000/api/weather/openweather',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })});
+        const oj = await ow.json().catch(()=>null);
+        if(oj && oj.ok){
+          setCurrentWeather({ temp: oj.temperature, code: oj.code, description: oj.description });
+          setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather (OpenWeather): ${oj.temperature}°C, ${oj.description}`}, ...J].slice(0,100));
+        }
       }catch(_){ }
     });
   }, []);
@@ -505,8 +516,8 @@ function HUDInner() {
             <div className="flex items-center gap-4">
               <IconThermometer className="h-10 w-10 text-cyan-300" />
               <div>
-                <div className="text-3xl font-semibold">{weather.temp}°C</div>
-                <div className="text-cyan-300/80 text-sm">{weather.desc}</div>
+                <div className="text-3xl font-semibold">{(currentWeather?.temp ?? weather.temp)}°C</div>
+                <div className="text-cyan-300/80 text-sm">{currentWeather?.description ?? weather.desc}</div>
               </div>
             </div>
             <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const lat=parseFloat(fd.get('lat')); const lon=parseFloat(fd.get('lon')); if(Number.isNaN(lat)||Number.isNaN(lon)) return; try{ const res=await fetch('http://127.0.0.1:8000/api/weather/current',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })}); const j=await res.json(); if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather: ${j.temperature}°C (code ${j.code}) @ ${lat},${lon}`}, ...J].slice(0,100)); } else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather error`}, ...J].slice(0,100)); } }catch(_){ } }} className="mt-3 flex flex-wrap gap-2 items-center">
