@@ -198,6 +198,39 @@ async def weather_openweather(body: WeatherQuery) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+class CityQuery(BaseModel):
+    city: str
+    provider: Optional[str] = "openmeteo"  # or 'openweather'
+
+
+@app.post("/api/weather/by_city")
+async def weather_by_city(body: CityQuery) -> Dict[str, Any]:
+    # Geokoda stadsnamn via Open-Meteo (gratis, ingen nyckel)
+    try:
+        geo_url = (
+            "https://geocoding-api.open-meteo.com/v1/search?"\
+            f"name={httpx.QueryParams({'name': body.city})['name']}&count=1&language=sv&format=json"
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            gr = await client.get(geo_url)
+            gr.raise_for_status()
+            g = gr.json() or {}
+            results = g.get("results") or []
+            if not results:
+                return {"ok": False, "error": "city_not_found"}
+            lat = float(results[0]["latitude"])
+            lon = float(results[0]["longitude"])
+
+        # Använd vald provider
+        if (body.provider or "").lower() == "openweather":
+            return await weather_openweather(WeatherQuery(lat=lat, lon=lon))
+        else:
+            return await weather_current(WeatherQuery(lat=lat, lon=lon))
+    except Exception as e:
+        logger.exception("weather by_city failed")
+        return {"ok": False, "error": str(e)}
+
+
 class MemoryUpsert(BaseModel):
     text: str
     score: Optional[float] = 0.0
