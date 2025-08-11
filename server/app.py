@@ -15,6 +15,7 @@ import logging
 from dotenv import load_dotenv
 import httpx
 import httpx
+import math
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
@@ -110,7 +111,13 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
     try:
-        contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+        # Använd hybrid retrieval via API för att återanvända pipeline
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            rr = await client.post("http://127.0.0.1:8000/api/memory/retrieve", json={"query": body.prompt, "limit": 5})
+            if rr.status_code == 200:
+                contexts = (rr.json() or {}).get("items") or []
+            else:
+                contexts = memory.retrieve_text_memories(body.prompt, limit=5)
     except Exception:
         contexts = []
     ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
@@ -600,6 +607,22 @@ class MemoryUpsert(BaseModel):
 async def memory_upsert(body: MemoryUpsert) -> Dict[str, Any]:
     tags_json = json.dumps(body.tags) if body.tags is not None else None
     mem_id = memory.upsert_text_memory(body.text, score=body.score or 0.0, tags_json=tags_json)
+    # Skapa embeddings (OpenAI) om nyckel finns
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key and (body.text or "").strip():
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"input": body.text, "model": os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")},
+                )
+                if r.status_code == 200:
+                    d = r.json() or {}
+                    vec = ((d.get("data") or [{}])[0].get("embedding") or [])
+                    memory.upsert_embedding(mem_id, model=os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small"), dim=len(vec), vector_json=json.dumps(vec))
+    except Exception:
+        logger.exception("embedding upsert failed")
     return {"ok": True, "id": mem_id}
 
 
@@ -610,8 +633,47 @@ class MemoryQuery(BaseModel):
 
 @app.post("/api/memory/retrieve")
 async def memory_retrieve(body: MemoryQuery) -> Dict[str, Any]:
-    items = memory.retrieve_text_memories(body.query, limit=body.limit or 5)
-    return {"ok": True, "items": items}
+    # Hybrid: BM25/LIKE + semantisk (cosine)
+    like_items = memory.retrieve_text_memories(body.query, limit=(body.limit or 5))
+    results = list(like_items)
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key and (body.query or "").strip():
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                rq = await client.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"input": body.query, "model": os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")},
+                )
+                if rq.status_code == 200:
+                    qv = ((rq.json().get("data") or [{}])[0].get("embedding") or [])
+                    rows = memory.get_all_embeddings(model=os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small"))
+                    # Cosine similarity
+                    def cos(a,b):
+                        if not a or not b:
+                            return 0.0
+                        num = sum(x*y for x,y in zip(a,b))
+                        da = math.sqrt(sum(x*x for x in a))
+                        db = math.sqrt(sum(y*y for y in b))
+                        return (num/(da*db)) if da>0 and db>0 else 0.0
+                    sims = []
+                    for mem_id, dim, vec_json in rows:
+                        try:
+                            v = json.loads(vec_json)
+                            sims.append((mem_id, cos(qv, v)))
+                        except Exception:
+                            continue
+                    sims.sort(key=lambda x: x[1], reverse=True)
+                    top_ids = [mid for mid,_ in sims[: (body.limit or 5)]]
+                    id_to_text = memory.get_texts_for_mem_ids(top_ids)
+                    for mid in top_ids:
+                        txt = id_to_text.get(mid)
+                        if txt and all(x.get('text') != txt for x in results):
+                            results.append({"id": mid, "text": txt, "kind": "text", "score": 0.0, "ts": ""})
+    except Exception:
+        logger.exception("hybrid retrieve failed")
+    # Trim till limit*2 för att undvika för stor retur
+    return {"ok": True, "items": results[: max(1,(body.limit or 5))]}
 
 
 class MemoryRecentBody(BaseModel):

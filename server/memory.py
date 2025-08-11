@@ -90,6 +90,19 @@ class MemoryStore:
                 """
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_sensor_ts ON sensor_timeseries(sensor, ts)")
+            # Embeddings för semantisk sökning
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    mem_id INTEGER PRIMARY KEY,
+                    ts TEXT NOT NULL,
+                    model TEXT,
+                    dim INTEGER,
+                    vector TEXT
+                )
+                """
+            )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model)")
 
     def ping(self) -> bool:
         try:
@@ -150,6 +163,40 @@ class MemoryStore:
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in rows]
+
+    def get_all_tool_stats(self):
+        with self._conn() as c:
+            cur = c.execute("SELECT tool, success, fail FROM tool_stats ORDER BY (success+fail) DESC, tool ASC")
+            rows = cur.fetchall()
+            return [
+                {"tool": r[0], "success": int(r[1] or 0), "fail": int(r[2] or 0)}
+                for r in rows
+            ]
+
+    # --- Embeddings ---
+    def upsert_embedding(self, mem_id: int, model: str, dim: int, vector_json: str) -> None:
+        ts = datetime.utcnow().isoformat() + "Z"
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO embeddings (mem_id, ts, model, dim, vector) VALUES (?, ?, ?, ?, ?)",
+                (mem_id, ts, model, dim, vector_json),
+            )
+
+    def get_all_embeddings(self, model: str):
+        with self._conn() as c:
+            cur = c.execute("SELECT mem_id, dim, vector FROM embeddings WHERE model = ?", (model,))
+            return cur.fetchall()
+
+    def get_texts_for_mem_ids(self, ids):
+        if not ids:
+            return {}
+        qmarks = ",".join(["?"] * len(ids))
+        with self._conn() as c:
+            cur = c.execute(
+                f"SELECT id, text FROM memories WHERE id IN ({qmarks})",
+                tuple(ids),
+            )
+            return {int(r[0]): (r[1] or "") for r in cur.fetchall()}
 
     def update_memory_score(self, mem_id: int, delta: float) -> None:
         with self._conn() as c:
