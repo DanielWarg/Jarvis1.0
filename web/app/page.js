@@ -304,13 +304,19 @@ function HUDInner() {
     });
   }, []);
 
-  // WS-klient till backend
+  // WS-klient till backend (auto-reconnect)
   useEffect(() => {
     const url = `ws://127.0.0.1:8000/ws/jarvis`;
-    try {
-      const ws = new WebSocket(url);
+    let closed = false;
+    let backoff = 1000;
+    const maxBackoff = 8000;
+    const connect = () => {
+      if (closed) return;
+      let ws;
+      try { ws = new WebSocket(url); } catch { return; }
       wsRef.current = ws;
       ws.onopen = () => {
+        backoff = 1000;
         setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: "WS connected" }, ...j].slice(0, 50));
       };
       ws.onmessage = (ev) => {
@@ -318,7 +324,6 @@ function HUDInner() {
           const msg = JSON.parse(ev.data);
           if (msg.type === "hud_command" && msg.command) {
             setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: msg.command }, ...q].slice(0, 50));
-            // Förväntar sig format { type: 'SHOW_MODULE', module: 'calendar' } etc.
             dispatchRef.current && dispatchRef.current(msg.command);
           } else if (msg.type === "hello" || msg.type === "heartbeat" || msg.type === "echo" || msg.type === "ack") {
             let line = null;
@@ -332,9 +337,13 @@ function HUDInner() {
       };
       ws.onclose = () => {
         setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: "WS disconnected" }, ...j].slice(0, 50));
+        if (!closed) setTimeout(connect, backoff);
+        backoff = Math.min(maxBackoff, backoff * 2);
       };
-    } catch (_) {}
-    return () => { try { wsRef.current && wsRef.current.close(); } catch (_) {} };
+      ws.onerror = () => { try { ws.close(); } catch(_){} };
+    };
+    connect();
+    return () => { closed = true; try { wsRef.current && wsRef.current.close(); } catch (_) {} };
   }, []);
   useEffect(() => { if (SAFE_BOOT) return; const id = setInterval(() => { if (typeof window !== 'undefined' && Math.random() < 0.07) dispatch({ type: "OPEN_VIDEO", source: { kind: "webcam" } }); }, 4000); return () => clearInterval(id); }, [dispatch]);
   const timeInit = useMemo(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), []); const [now, setNow] = useState(timeInit); useEffect(() => { const id = setInterval(() => setNow(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })), 1000); return () => clearInterval(id); }, []);
