@@ -462,7 +462,7 @@ function HUDInner() {
                   if (!res.body) return;
                   const reader = res.body.getReader();
                   const dec = new TextDecoder();
-                  let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null;
+                  let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null; let gotChunk=false;
                   setJournal((J)=>[{ id: currentId, ts:new Date().toISOString(), text:`Jarvis: `}, ...J].slice(0,100));
                   while(true){
                     const {value, done} = await reader.read(); if (done) break;
@@ -473,6 +473,7 @@ function HUDInner() {
                       try{
                         const obj = JSON.parse(p.slice(6));
                         if (obj.type === 'chunk' && obj.text){
+                          gotChunk = true;
                           setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: (item.text||'') + obj.text } : item));
                         } else if (obj.type === 'done'){
                           providerMark = obj.provider === 'openai' ? 'GPT' : 'Jarvis';
@@ -480,6 +481,21 @@ function HUDInner() {
                           setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `${providerMark}: ${item.text.replace(/^Jarvis:\s*/,'')}`, memoryId } : item));
                         }
                       }catch(_){ }
+                    }
+                  }
+                  // Fallback om inga chunkar kom (t.ex. lokal modell buffrade/inget stream)
+                  if (!gotChunk){
+                    try{
+                      const fres = await fetch('http://127.0.0.1:8000/api/chat',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider })});
+                      const fj = await fres.json().catch(()=>null);
+                      if (fj && fj.text){
+                        const who = fj.provider === 'openai' ? 'GPT' : 'Jarvis';
+                        setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `${who}: ${fj.text}`, memoryId: fj.memory_id||null } : item));
+                      } else {
+                        setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `Jarvis: [no response]` } : item));
+                      }
+                    }catch(_){
+                      setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `Jarvis: [no response]` } : item));
                     }
                   }
                 }catch(_){ }
