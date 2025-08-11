@@ -412,20 +412,20 @@ function HUDInner() {
 
           <Pane title="Sensors">
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-cyan-400/20 p-3">
+              <div className="rounded-xl border border-cyan-400/20 p-3 overflow-hidden">
                 <div className="text-xs text-cyan-300/80 mb-2">Send telemetry</div>
-                <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const sensor=fd.get('sensor'); const value=parseFloat(fd.get('value')); if(!sensor||Number.isNaN(value)) return; try{ await fetch('http://127.0.0.1:8000/api/sensor/telemetry',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sensor, value })}); setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`telemetry sent: ${sensor}=${value}`}, ...j].slice(0,100)); }catch(_){ } }} className="flex gap-2 items-center">
-                  <input name="sensor" placeholder="sensor name" className="flex-1 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
+                <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const sensor=fd.get('sensor'); const value=parseFloat(fd.get('value')); if(!sensor||Number.isNaN(value)) return; try{ await fetch('http://127.0.0.1:8000/api/sensor/telemetry',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sensor, value })}); setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`telemetry sent: ${sensor}=${value}`}, ...j].slice(0,100)); }catch(_){ } }} className="flex flex-wrap gap-2 items-center">
+                  <input name="sensor" placeholder="sensor name" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
                   <input name="value" type="number" step="any" placeholder="value" className="w-28 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
-                  <button className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Send</button>
+                  <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Send</button>
                 </form>
               </div>
-              <div className="rounded-xl border border-cyan-400/20 p-3">
+              <div className="rounded-xl border border-cyan-400/20 p-3 overflow-hidden">
                 <div className="text-xs text-cyan-300/80 mb-2">CV ingest (meta JSON)</div>
-                <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const source=fd.get('source'); const meta=fd.get('meta'); try{ const parsed=meta?JSON.parse(meta):undefined; await fetch('http://127.0.0.1:8000/api/cv/ingest',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source, meta: parsed })}); setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`cv.ingest: ${source}`}, ...j].slice(0,100)); }catch(err){ setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`cv.ingest error`}, ...j].slice(0,100)); } }} className="flex gap-2 items-center">
-                  <input name="source" placeholder="source id" className="flex-1 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
-                  <input name="meta" placeholder='{"objects":[{"name":"person","conf":0.9}]}' className="flex-1 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
-                  <button className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Send</button>
+                <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const source=fd.get('source'); const meta=fd.get('meta'); try{ const parsed=meta?JSON.parse(meta):undefined; await fetch('http://127.0.0.1:8000/api/cv/ingest',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source, meta: parsed })}); setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`cv.ingest: ${source}`}, ...j].slice(0,100)); }catch(err){ setJournal((j)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`cv.ingest error`}, ...j].slice(0,100)); } }} className="flex flex-wrap gap-2 items-center">
+                  <input name="source" placeholder="source id" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
+                  <input name="meta" placeholder='{"objects":[{"name":"person","conf":0.9}]}' className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
+                  <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Send</button>
                 </form>
               </div>
             </div>
