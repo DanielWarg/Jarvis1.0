@@ -249,6 +249,7 @@ function HUDInner() {
   const [geoCity, setGeoCity] = useState(null);
   const [intents, setIntents] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
+  const [provider, setProvider] = useState('auto'); // 'auto' | 'local' | 'openai'
   const [toolStats, setToolStats] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);
@@ -425,7 +426,7 @@ function HUDInner() {
                   await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                   setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
                   // Trigga chat även via Go-knappen
-                  const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false })});
+                  const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider })});
                   const j = await res.json().catch(()=>null);
                   if (j && j.text) {
                     const mid = j.memory_id || null;
@@ -439,6 +440,11 @@ function HUDInner() {
                   setQuery("");
                 }
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Go</button>
+              <select aria-label="Provider" value={provider} onChange={(e)=> setProvider(e.target.value)} className="rounded-xl border border-cyan-400/30 bg-transparent px-2 py-1 text-xs">
+                <option value="auto">Auto</option>
+                <option value="local">Lokal</option>
+                <option value="openai">Online</option>
+              </select>
               <button aria-label="Auto Decide" onClick={async ()=>{
                 try{
                   const res = await fetch('http://127.0.0.1:8000/api/decision/pick_tool',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ candidates: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'] })});
@@ -454,7 +460,7 @@ function HUDInner() {
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Auto</button>
               <button aria-label="AI Act" onClick={async ()=>{
                 try{
-                  const res = await fetch('http://127.0.0.1:8000/api/ai/act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query || 'visa kalender', allow: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'] })});
+                  const res = await fetch('http://127.0.0.1:8000/api/ai/act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query || 'visa kalender', allow: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'], provider })});
                   const j = await res.json();
                   if (j && j.ok && j.command){
                     setIntents((q)=>[{ id:safeUUID(), ts:new Date().toISOString(), command: j.command }, ...q].slice(0,50));

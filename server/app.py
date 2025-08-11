@@ -332,6 +332,26 @@ async def ai_act(body: ActBody) -> Dict[str, Any]:
 
     cmd = _validate_hud_command(proposed, allow=allow)
     if not cmd:
+        # Sista fallback: härleda från användartext om modellen gav ogiltigt JSON
+        low = (user or "").lower()
+        heuristic = None
+        if any(k in low for k in ["stäng", "hide", "close"]):
+            heuristic = {"type": "HIDE_OVERLAY"}
+        elif any(k in low for k in ["video", "kamera"]):
+            heuristic = {"type": "OPEN_VIDEO", "source": {"kind": "webcam"}}
+        elif any(k in low for k in ["kalender", "calendar"]):
+            heuristic = {"type": "SHOW_MODULE", "module": "calendar"}
+        elif any(k in low for k in ["mail", "mejl", "email"]):
+            heuristic = {"type": "SHOW_MODULE", "module": "mail"}
+        elif any(k in low for k in ["finans", "ekonomi", "finance"]):
+            heuristic = {"type": "SHOW_MODULE", "module": "finance"}
+        elif any(k in low for k in ["påminnelser", "paminnelser", "reminders"]):
+            heuristic = {"type": "SHOW_MODULE", "module": "reminders"}
+        elif any(k in low for k in ["plånbok", "planbok", "wallet"]):
+            heuristic = {"type": "SHOW_MODULE", "module": "wallet"}
+        if heuristic:
+            cmd = _validate_hud_command(heuristic, allow=allow)
+    if not cmd:
         return {"ok": False, "error": "invalid_command"}
     # Safety gate
     scores = simulate_first(cmd)
