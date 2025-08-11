@@ -268,7 +268,12 @@ function HUDInner() {
             // Förväntar sig format { type: 'SHOW_MODULE', module: 'calendar' } etc.
             dispatchRef.current && dispatchRef.current(msg.command);
           } else if (msg.type === "hello" || msg.type === "heartbeat" || msg.type === "echo" || msg.type === "ack") {
-            setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: JSON.stringify(msg) }, ...j].slice(0, 100));
+            let line = null;
+            if (msg.type === "hello") line = "WS connected";
+            else if (msg.type === "heartbeat") line = "Heartbeat";
+            else if (msg.type === "ack") line = `Ack: ${msg.event || ''}`;
+            else if (msg.type === "echo") line = `Echo: ${typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)}`;
+            setJournal((j) => [{ id: safeUUID(), ts: new Date().toISOString(), text: line || JSON.stringify(msg) }, ...j].slice(0, 100));
           }
         } catch (_) {}
       };
