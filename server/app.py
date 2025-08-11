@@ -61,6 +61,14 @@ async def health() -> Dict[str, Any]:
 async def jarvis_command(cmd: JarvisCommand) -> JarvisResponse:
     # Persist basic interaction for future learning
     memory.append_event("command", json.dumps(cmd.dict(), ensure_ascii=False))
+    # Extra: spara USER_QUERY som textminne
+    try:
+        if (cmd.type or "").upper() == "USER_QUERY":
+            q = (cmd.payload or {}).get("query", "")
+            if q:
+                memory.upsert_text_memory(q, score=0.0, tags_json=json.dumps({"source": "user_query"}, ensure_ascii=False))
+    except Exception:
+        pass
     # simulate-first risk gating
     scores = simulate_first(cmd.dict())
     logger.info("/api/jarvis/command type=%s risk=%.3f", cmd.type, scores.get("risk", 1.0))
@@ -327,6 +335,16 @@ class MemoryQuery(BaseModel):
 @app.post("/api/memory/retrieve")
 async def memory_retrieve(body: MemoryQuery) -> Dict[str, Any]:
     items = memory.retrieve_text_memories(body.query, limit=body.limit or 5)
+    return {"ok": True, "items": items}
+
+
+class MemoryRecentBody(BaseModel):
+    limit: Optional[int] = 10
+
+
+@app.post("/api/memory/recent")
+async def memory_recent(body: MemoryRecentBody) -> Dict[str, Any]:
+    items = memory.get_recent_text_memories(limit=body.limit or 10)
     return {"ok": True, "items": items}
 
 

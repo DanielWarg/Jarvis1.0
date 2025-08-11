@@ -457,14 +457,25 @@ function HUDInner() {
                     {!isUserQuery && (
                       <pre className="mt-1 whitespace-pre-wrap break-words text-cyan-200/70">{JSON.stringify(cmd)}</pre>
                     )}
-                    <div className="mt-2 flex gap-2">
-                      <button aria-label="Feedback up" onClick={async ()=>{
-                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: true })}); } catch(_){ }
-                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
-                      <button aria-label="Feedback down" onClick={async ()=>{
-                        try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: false })}); } catch(_){ }
-                      }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
-                    </div>
+                    {!it.feedback && !isUserQuery && (
+                      <div className="mt-2 flex gap-2">
+                        <button aria-label="Feedback up" onClick={async ()=>{
+                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: true })}); } catch(_){ }
+                          // Markera som skickad feedback i listan
+                          setIntents((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'up' } : x));
+                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
+                        <button aria-label="Feedback down" onClick={async ()=>{
+                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: false })}); } catch(_){ }
+                          setIntents((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'down' } : x));
+                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
+                      </div>
+                    )}
+                    {isUserQuery && (
+                      <div className="mt-2 text-[10px] text-cyan-300/70">User query</div>
+                    )}
+                    {it.feedback && (
+                      <div className="mt-2 text-[10px] text-cyan-300/80">Tack! Sparat {it.feedback === 'up' ? '👍' : '👎'}</div>
+                    )}
                   </li>
                 );
               })}
@@ -479,7 +490,7 @@ function HUDInner() {
                   <li key={it.id} className="rounded border border-cyan-400/10 p-2">
                     <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
                     <div className="text-cyan-200/90 break-words">{it.text}</div>
-                    {isJarvis && (
+                    {isJarvis && !it.feedback && (
                       <div className="mt-2 flex gap-2">
                         <button aria-label="Jarvis up" onClick={async ()=>{
                           try {
@@ -489,6 +500,8 @@ function HUDInner() {
                               await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: true })});
                             }
                           } catch(_){ }
+                          // Markera som skickad feedback i journalen
+                          setJournal((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'up' } : x));
                         }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
                         <button aria-label="Jarvis down" onClick={async ()=>{
                           try {
@@ -498,8 +511,12 @@ function HUDInner() {
                               await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: 'chat', up: false })});
                             }
                           } catch(_){ }
+                          setJournal((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'down' } : x));
                         }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
                       </div>
+                    )}
+                    {isJarvis && it.feedback && (
+                      <div className="mt-2 text-[10px] text-cyan-300/80">Tack! Sparat {it.feedback === 'up' ? '👍' : '👎'}</div>
                     )}
                   </li>
                 );
@@ -560,6 +577,14 @@ function HUDInner() {
 
           <Pane title="To‑do">
             <TodoList todos={todos} onToggle={toggle} onRemove={remove} onAdd={add} />
+          </Pane>
+
+          <Pane title="History">
+            <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const q=(fd.get('q')||'').toString(); try{ const res=await fetch('http://127.0.0.1:8000/api/memory/retrieve',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query: q, limit: 10 })}); const j=await res.json(); if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`History(${q||'*'}): ${j.items.length} hits`}, ...J].slice(0,100)); } }catch(_){ } }} className="flex gap-2">
+              <input name="q" placeholder="Sök minnen…" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
+              <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Sök</button>
+              <button type="button" onClick={async()=>{ try{ const r=await fetch('http://127.0.0.1:8000/api/memory/recent',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ limit: 10 })}); const j=await r.json(); if(j && j.ok){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Recent: ${j.items.length} items`}, ...J].slice(0,100)); } }catch(_){ } }} className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Recent</button>
+            </form>
           </Pane>
         </div>
       </main>

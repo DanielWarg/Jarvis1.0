@@ -135,6 +135,22 @@ class MemoryStore:
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in rows]
 
+    def get_recent_text_memories(self, limit: int = 10):
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                SELECT id, ts, kind, text, score, tags
+                FROM memories
+                WHERE kind='text'
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in rows]
+
     def update_memory_score(self, mem_id: int, delta: float) -> None:
         with self._conn() as c:
             c.execute("UPDATE memories SET score = COALESCE(score,0) + ? WHERE id = ?", (delta, mem_id))
