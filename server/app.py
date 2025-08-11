@@ -1040,6 +1040,38 @@ async def spotify_refresh(body: SpotifyRefreshBody) -> Dict[str, Any]:
         return {"ok": False, "error": "refresh_failed"}
 
 
+@app.get("/api/spotify/devices")
+async def spotify_devices(access_token: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.spotify.com/v1/me/player/devices",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            return {"ok": True, "devices": r.json()}
+    except Exception:
+        logger.exception("spotify devices failed")
+        return {"ok": False, "error": "spotify_devices_failed"}
+
+
+@app.get("/api/spotify/state")
+async def spotify_state(access_token: str) -> Dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.spotify.com/v1/me/player",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 204:
+                return {"ok": True, "state": None}
+            r.raise_for_status()
+            return {"ok": True, "state": r.json()}
+    except Exception:
+        logger.exception("spotify state failed")
+        return {"ok": False, "error": "spotify_state_failed"}
+
+
 # Lista användarens spellistor
 @app.get("/api/spotify/playlists")
 async def spotify_playlists(access_token: str, limit: Optional[int] = 20, offset: Optional[int] = 0) -> Dict[str, Any]:
@@ -1079,6 +1111,8 @@ class SpotifyPlayBody(BaseModel):
     uris: Optional[List[str]] = None
     context_uri: Optional[str] = None
     position_ms: Optional[int] = None
+    offset_position: Optional[int] = None  # for context playback
+    offset_uri: Optional[str] = None       # alternative to position
 
 
 @app.post("/api/spotify/play")
@@ -1086,8 +1120,9 @@ async def spotify_play(body: SpotifyPlayBody) -> Dict[str, Any]:
     if not body.uris and not body.context_uri:
         return {"ok": False, "error": "missing_uris_or_context"}
     try:
-        params = {} if not body.device_id else {"device_id": body.device_id}
-        qp = ("" if not params else ("?" + httpx.QueryParams(params).render()))
+        qp = ""
+        if body.device_id:
+            qp = "?" + str(httpx.QueryParams({"device_id": body.device_id}))
         payload: Dict[str, Any] = {}
         if body.uris:
             payload["uris"] = body.uris
@@ -1095,6 +1130,14 @@ async def spotify_play(body: SpotifyPlayBody) -> Dict[str, Any]:
             payload["context_uri"] = body.context_uri
         if body.position_ms is not None:
             payload["position_ms"] = int(body.position_ms)
+        if body.offset_uri or (body.offset_position is not None):
+            off: Dict[str, Any] = {}
+            if body.offset_uri:
+                off["uri"] = body.offset_uri
+            if body.offset_position is not None:
+                off["position"] = int(body.offset_position)
+            if off:
+                payload["offset"] = off
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.put(
                 f"https://api.spotify.com/v1/me/player/play{qp}",
@@ -1105,7 +1148,33 @@ async def spotify_play(body: SpotifyPlayBody) -> Dict[str, Any]:
             if r.status_code in (200, 204):
                 return {"ok": True}
             return {"ok": False, "error": f"status_{r.status_code}", "details": r.text}
-    except Exception:
+    except Exception as e:
         logger.exception("spotify play failed")
-        return {"ok": False, "error": "spotify_play_failed"}
+        return {"ok": False, "error": "spotify_play_failed", "message": str(e)}
+
+
+class SpotifyQueueBody(BaseModel):
+    access_token: str
+    device_id: Optional[str] = None
+    uri: str
+
+
+@app.post("/api/spotify/queue")
+async def spotify_queue(body: SpotifyQueueBody) -> Dict[str, Any]:
+    try:
+        params: Dict[str, Any] = {"uri": body.uri}
+        if body.device_id:
+            params["device_id"] = body.device_id
+        qp = str(httpx.QueryParams(params))
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"https://api.spotify.com/v1/me/player/queue?{qp}",
+                headers={"Authorization": f"Bearer {body.access_token}"},
+            )
+            if r.status_code in (200, 204):
+                return {"ok": True}
+            return {"ok": False, "error": f"status_{r.status_code}", "details": r.text}
+    except Exception as e:
+        logger.exception("spotify queue failed")
+        return {"ok": False, "error": "spotify_queue_failed", "message": str(e)}
 
