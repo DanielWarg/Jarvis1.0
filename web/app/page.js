@@ -246,6 +246,7 @@ export default function JarvisHUD() { return (<ErrorBoundary><HUDProvider><HUDIn
 function HUDInner() {
   const { cpu, mem, net } = useSystemMetrics(); const weather = useWeatherStub(); const { todos, add, toggle, remove } = useTodos(); const { transcript, isListening, start, stop } = useVoiceInput(); const [query, setQuery] = useState(""); const { globalError } = useGlobalErrorCatcher(); const { dispatch } = useHUD();
   const [currentWeather, setCurrentWeather] = useState(null);
+  const [geoCity, setGeoCity] = useState(null);
   const [intents, setIntents] = useState([]);
   const [journal, setJournal] = useState([]);
   const wsRef = useRef(null);
@@ -263,6 +264,18 @@ function HUDInner() {
           setCurrentWeather((w)=>({ ...(w||{}), temp: j.temperature, code: j.code }));
           setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather: ${j.temperature}°C (code ${j.code}) @ ${lat.toFixed(3)},${lon.toFixed(3)}`}, ...J].slice(0,100));
         }
+        // Reverse geocoding för att visa stad
+        try {
+          const gr = await fetch('http://127.0.0.1:8000/api/geo/reverse',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })});
+          const gj = await gr.json().catch(()=>null);
+          if (gj && gj.ok) {
+            const city = gj.city || gj.admin2 || gj.admin1 || gj.country || null;
+            if (city) {
+              setGeoCity(city);
+              setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Location: ${city}`}, ...J].slice(0,100));
+            }
+          }
+        } catch(_) {}
         // Försök även OpenWeather om nyckel finns på servern
         const ow = await fetch('http://127.0.0.1:8000/api/weather/openweather',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lat, lon })});
         const oj = await ow.json().catch(()=>null);
@@ -517,10 +530,15 @@ function HUDInner() {
               <IconThermometer className="h-10 w-10 text-cyan-300" />
               <div>
                 <div className="text-3xl font-semibold">{(currentWeather?.temp ?? weather.temp)}°C</div>
-                <div className="text-cyan-300/80 text-sm">{currentWeather?.description ?? weather.desc}</div>
+                <div className="text-cyan-300/80 text-sm">{currentWeather?.description ?? weather.desc}{geoCity ? ` • ${geoCity}` : ''}</div>
               </div>
             </div>
-            <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const city=(fd.get('city')||'').toString().trim(); if(!city) return; try{ const res=await fetch('http://127.0.0.1:8000/api/weather/by_city',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ city, provider: 'openweather' })}); const j=await res.json(); if(j && j.ok){ setCurrentWeather({ temp: j.temperature, code: j.code, description: j.description }); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather (${city}): ${j.temperature}°C, ${j.description||j.code}`}, ...J].slice(0,100)); } else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather error (${city})`}, ...J].slice(0,100)); } }catch(_){ } }} className="mt-3 flex flex-wrap gap-2 items-center">
+            <form onSubmit={async (e)=>{ e.preventDefault(); const fd=new FormData(e.currentTarget); const city=(fd.get('city')||'').toString().trim(); if(!city) return; try{ let j=null; // Först open‑meteo (ingen nyckel)
+              try { const r1=await fetch('http://127.0.0.1:8000/api/weather/by_city',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ city, provider: 'openmeteo' })}); j=await r1.json(); } catch(_) {}
+              if(!(j&&j.ok)){ // fallback openweather om servern har nyckel
+                try { const r2=await fetch('http://127.0.0.1:8000/api/weather/by_city',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ city, provider: 'openweather' })}); j=await r2.json(); } catch(_) {}
+              }
+              if(j && j.ok){ setCurrentWeather({ temp: j.temperature, code: j.code, description: j.description }); setGeoCity(city); setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather (${city}): ${j.temperature}°C, ${j.description||j.code}`}, ...J].slice(0,100)); } else { setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Weather error (${city})`}, ...J].slice(0,100)); } }catch(_){ } }} className="mt-3 flex flex-wrap gap-2 items-center">
               <input name="city" placeholder="City (e.g. Göteborg)" className="flex-1 min-w-0 bg-transparent text-sm text-cyan-100 placeholder:text-cyan-300/40 focus:outline-none border border-cyan-400/20 rounded px-2 py-1" />
               <button className="shrink-0 rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Fetch</button>
             </form>

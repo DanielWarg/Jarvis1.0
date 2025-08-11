@@ -231,6 +231,57 @@ async def weather_by_city(body: CityQuery) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+class ReverseQuery(BaseModel):
+    lat: float
+    lon: float
+
+
+@app.post("/api/geo/reverse")
+async def geo_reverse(body: ReverseQuery) -> Dict[str, Any]:
+    """Reverse‑geokoda lat/lon till närmaste platsnamn via Open‑Meteo (gratis)."""
+    try:
+        url = (
+            "https://geocoding-api.open-meteo.com/v1/reverse?"
+            f"latitude={body.lat}&longitude={body.lon}&language=sv&format=json"
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            if r.status_code == 200:
+                data = r.json() or {}
+                results = data.get("results") or []
+                if results:
+                    top = results[0]
+                    return {
+                        "ok": True,
+                        "city": top.get("name"),
+                        "admin1": top.get("admin1"),
+                        "admin2": top.get("admin2"),
+                        "country": top.get("country"),
+                    }
+            # Fallback: Nominatim (kräver User-Agent), jsonv2, svenska
+            nurl = (
+                "https://nominatim.openstreetmap.org/reverse?"
+                f"format=jsonv2&lat={body.lat}&lon={body.lon}&accept-language=sv"
+            )
+            r2 = await client.get(nurl, headers={"User-Agent": "Jarvis/0.1 (+https://example.local)"})
+            r2.raise_for_status()
+            d2 = r2.json() or {}
+            addr = d2.get("address") or {}
+            city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality")
+            if not city:
+                city = addr.get("county") or addr.get("state") or addr.get("country")
+            return {
+                "ok": True,
+                "city": city,
+                "admin1": addr.get("state"),
+                "admin2": addr.get("county"),
+                "country": addr.get("country"),
+            }
+    except Exception as e:
+        logger.exception("reverse geocoding failed")
+        return {"ok": False, "error": str(e)}
+
+
 class MemoryUpsert(BaseModel):
     text: str
     score: Optional[float] = 0.0
