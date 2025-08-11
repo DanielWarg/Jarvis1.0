@@ -463,6 +463,20 @@ function HUDInner() {
                   const reader = res.body.getReader();
                   const dec = new TextDecoder();
                   let acc=""; let currentId = safeUUID(); let providerMark = null; let memoryId=null; let gotChunk=false; let metaShown=false;
+                  // Smidig rendering: buffra text och pumpa ut teckenvis
+                  const renderQueue = [];
+                  let pumping = false;
+                  const startPump = () => {
+                    if (pumping) return; pumping = true;
+                    const tick = () => {
+                      if (renderQueue.length === 0) { pumping = false; return; }
+                      const ch = renderQueue.shift();
+                      setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: (item.text||'') + ch } : item));
+                      setTimeout(tick, 15);
+                    };
+                    tick();
+                  };
+                  const enqueueText = (t) => { if (!t) return; for (let i=0;i<t.length;i++) renderQueue.push(t[i]); startPump(); };
                   setJournal((J)=>[{ id: currentId, ts:new Date().toISOString(), text:`Jarvis: `}, ...J].slice(0,100));
                   while(true){
                     const {value, done} = await reader.read(); if (done) break;
@@ -479,7 +493,7 @@ function HUDInner() {
                         }
                         if (obj.type === 'chunk' && obj.text){
                           gotChunk = true;
-                          setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: (item.text||'') + obj.text } : item));
+                          enqueueText(obj.text);
                         } else if (obj.type === 'done'){
                           providerMark = obj.provider === 'openai' ? 'GPT' : 'Jarvis';
                           memoryId = obj.memory_id || null;
@@ -495,7 +509,11 @@ function HUDInner() {
                       const fj = await fres.json().catch(()=>null);
                       if (fj && fj.text){
                         const who = fj.provider === 'openai' ? 'GPT' : 'Jarvis';
-                        setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `${who}: ${fj.text}`, memoryId: fj.memory_id||null } : item));
+                        // Om inget streamades: rendera ändå långsamt
+                        enqueueText(fj.text);
+                        setTimeout(()=>{
+                          setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `${who}: ${J.find(x=>x.id===currentId)?.text?.replace(/^Jarvis:\s*/,'')||''}`, memoryId: fj.memory_id||null } : item));
+                        }, Math.min(1000, fj.text.length * 15 + 50));
                       } else {
                         setJournal((J)=> J.map(item=> item.id===currentId ? { ...item, text: `Jarvis: [no response]` } : item));
                       }
@@ -526,6 +544,17 @@ function HUDInner() {
               }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Auto</button>
               <button aria-label="AI Act" onClick={async ()=>{
                 try{
+                  // Dry-run först för att få riskvärde
+                  const dr = await fetch('http://127.0.0.1:8000/api/ai/act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query || 'visa kalender', allow: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'], provider, dry_run: true })});
+                  const dj = await dr.json().catch(()=>null);
+                  if (!dj || !dj.ok || !dj.command){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act error: ${dj?.error||'unknown'}`}, ...J].slice(0,100)); return; }
+                  const risk = (dj.scores && typeof dj.scores.risk==='number') ? dj.scores.risk : 0.0;
+                  setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act (risk=${risk.toFixed(2)}): ${JSON.stringify(dj.command)}`}, ...J].slice(0,100));
+                  let proceed = true;
+                  if (risk > 0.5) {
+                    proceed = window.confirm('Åtgärden bedöms som riskfylld. Vill du fortsätta?');
+                    if (!proceed){ setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`AI Act avbruten av användare`}, ...J].slice(0,100)); return; }
+                  }
                   const res = await fetch('http://127.0.0.1:8000/api/ai/act',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: query || 'visa kalender', allow: ['SHOW_MODULE','OPEN_VIDEO','HIDE_OVERLAY'], provider })});
                   const j = await res.json();
                   if (j && j.ok && j.command){
