@@ -139,6 +139,14 @@
   - [ ] Emotional intelligence
   - [ ] Personality adaptation
 
+### Phase 5.2: Gör AI smart (Planned)
+- [ ] Intent-router som väljer mellan chat/HUD/Media automatiskt (klar: backend routern)
+- [ ] Kontextmedvetenhet mellan frågor (t.ex. “hon gillar Kate Bush, hitta något bättre”) med minneskedjor
+- [ ] Rekommendationer: använd “currently playing” och “liked artists” som seeds vid musik‑kommandon
+- [ ] Korttidsminne i HUD för senaste subjekt (“hon”, “det där”) → resolva till senaste entitet
+- [ ] Preferensprofil per användare (artister, genrer, tider på dagen)
+- [ ] Utvärdera svar/åtgärder mot framgångsmått och förstärk policy (bandit + lessons)
+
 ### Phase 5.1: Media Integration – Spotify (PLANNED)
 - [ ] App-registrering i Spotify Developer Dashboard (Client ID/Secret, Redirect URIs)
 - [ ] OAuth Authorization Code with PKCE (scopes: user-read-playback-state, user-modify-playback-state, user-read-currently-playing, playlist-read-private, playlist-modify-private, playlist-modify-public, user-read-recently-played)
