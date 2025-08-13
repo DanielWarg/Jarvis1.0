@@ -160,7 +160,10 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     data = r.json()
                     dt = (time.time() - t0) * 1000
                     logger.info("chat local ms=%.0f", dt)
-                    return await respond(data.get("response", ""), used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
+                    local_text = (data.get("response", "") or "").strip()
+                    if not local_text:
+                        return RuntimeError("local_empty")
+                    return await respond(local_text, used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
         except Exception as e:
             return e
         return RuntimeError("local_failed")
@@ -201,6 +204,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
             res = await try_local()
             if isinstance(res, dict):
                 return res
+            # if local failed/empty under 'local', fall back to stub at end
             last_error = res
         elif provider == "openai":
             res = await try_openai()
@@ -213,7 +217,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
             done, pending = await asyncio.wait({t_local, t_openai}, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 res = d.result()
-                if isinstance(res, dict):
+                if isinstance(res, dict) and (res.get("text") or "").strip():
                     # cancel the slower one
                     for p in pending:
                         p.cancel()
@@ -223,7 +227,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
             for p in pending:
                 try:
                     res = await p
-                    if isinstance(res, dict):
+                    if isinstance(res, dict) and (res.get("text") or "").strip():
                         return res
                     last_error = res
                 except asyncio.CancelledError:
