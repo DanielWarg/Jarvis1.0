@@ -1,64 +1,89 @@
-# Jarvis HUD — Next.js PWA
+# Jarvis HUD — Web HUD + FastAPI backend
 
-An installable web HUD for the Jarvis project, built with Next.js (App Router), React, and Tailwind. It starts fast in sandboxed environments (Safe Boot) and can be packaged as a desktop app later with minimal changes.
+Installationsbar web‑HUD för Jarvis, byggd med Next.js (App Router), React och Tailwind. Backend kör FastAPI. HUD:en är optimerad för snabb uppstart (Safe Boot) och kan packas som desktop‑app senare.
 
-## Overview
-- HUD UI: system metrics, voice input (stub), diagnostics, weather, to‑do list.
-- Overlay modules: calendar, mail, finance, reminders, wallet (stub), video.
-- Safe Boot: camera/voice/background visuals disabled by default.
-- No MetaMask/Web3 code (wallet is a stub).
+## Funktioner
+- HUD‑paneler: system, väder, to‑do, diagnostics, journal/intent‑queue, media.
+- Overlay‑moduler: kalender, mail, finans, påminnelser, plånbok (stub), video.
+- Spotify‑integration (Web API + Web Playback SDK):
+  - OAuth (popup), enhetslista, play/queue, sök, spellistor.
+  - Auto‑init: vid sidladdning initieras spelaren och transfereras (med retry) om token finns. Journal visar “Spotify connected”.
+  - Klient‑intent: “spela/starta …” söker och spelar första/korrekta träffen (stänger av shuffle, queue‑fallback vid behov).
+- Safe Boot: kamera/röst/bakgrund kan centralt stängas av.
 
 ## Tech Stack
-- Next.js 15 (App Router)
-- React 19
-- Tailwind CSS v4
-- next-pwa (PWA enabled in production)
+- Frontend: Next.js 15 (App Router), React 19, Tailwind CSS v4, next‑pwa.
+- Backend: FastAPI, httpx, orjson, python‑dotenv, SQLite‑baserat minne.
 
-## Quick Start
-1) Development
+## Snabbstart
+1) Backend (.venv)
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install fastapi "uvicorn[standard]" httpx orjson python-dotenv
+uvicorn server.app:app --host 127.0.0.1 --port 8000
+```
+
+2) Frontend
 ```
 cd web
 npm install
 npm run dev -- -p 3100
 ```
-Open http://localhost:3100
+Öppna http://localhost:3100
 
-2) Production
+## Spotify‑konfiguration
+1) Skapa en app på Spotify Developer Dashboard.
+2) Lägg till redirect URI: `http://127.0.0.1:3100/spotify/callback`.
+3) Skapa `.env` i projektroten (läses av backend via python‑dotenv):
 ```
-cd web
-npm run build
-npm start
+SPOTIFY_CLIENT_ID=xxxx
+SPOTIFY_CLIENT_SECRET=xxxx
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:3100/spotify/callback
 ```
+4) Kör backend, öppna HUD → “Connect Spotify”. Efter första login kommer auto‑initen att aktivera “Jarvis HUD” automatiskt och Journal visar “Spotify connected”. Om auto‑transfer inte hinner: klicka “Starta spelare” en gång.
 
-## Structure
+## Projektstruktur
 ```
 Jarvis/
 ├─ project_plan.md
 ├─ README.md
 ├─ requirements.md
+├─ server/
+│  ├─ app.py
+│  └─ data/
 ├─ web/
 │  ├─ app/
 │  ├─ public/
 │  ├─ next.config.mjs
 │  └─ package.json
-└─ .gitignore
 ```
 
-## Configuration
-- Safe Boot toggle: `web/app/page.js` → `const SAFE_BOOT = true`.
+## Konfiguration
+- Safe Boot: `web/app/page.js` → `const SAFE_BOOT = true` (aktiverad i fallback‑läget).
 - PWA manifest: `web/public/manifest.json`.
 
-## Desktop Packaging (planned)
-- Electron or Tauri (desktop). Capacitor optional (mobile).
+## Fallback & Recovery
+- Nyaste stabila Spotify‑läget (auto‑start):
+```
+git reset --hard fallback-spotify-autostart-2025-08-12 && git clean -fd
+```
+- Tidigare stabilt Spotify‑läge:
+```
+git reset --hard fallback-spotify-stable-2025-08-12 && git clean -fd
+```
 
-See `requirements.md` for details.
+## Roadmap (kort)
+- Intent‑router (backend/UI) som väljer mellan chat, HUD‑kontroll och media.
+- RAG med MMR + reranker och profilminne (personas/preferenser).
+- Röst: streaming STT/TTS, wake‑word, barge‑in.
 
-## Deployment
-- Recommended: Vercel. Alternative: Node hosting for Next.js 15.
+## NLU/Agent‑router
+- Se `npl_ml.md` för en komplett plan att införa en lättvikts NLU‑service, agent‑router och verktygslexikon (svenska). Inkluderar slot‑filling (tid/volym/språk), talord→siffror, vaga tidsuttryck, device‑fuzzy, NONE‑policy, validering + auto‑fix + retry, samt svenska few‑shots.
 
-## Accessibility & Performance
-- Aria labels on icon buttons.
-- Unique SVG ids via `useId`.
+## Prestanda & Tillgänglighet
+- ORJSON‑svar i backend, WS‑journal i HUD.
+- Aria‑labels på knappar; unika SVG‑ids via `useId`.
 
-## License
-TBD.
+## Licens
+TBD

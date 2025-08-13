@@ -114,6 +114,16 @@
   - [ ] Voice command recognition
   - [ ] Conversational AI dialogue
 
+- [ ] **NLU + Agent Router** (se `npl_ml.md` för koncept och detaljer)
+  - [ ] Lättvikts intent-router för media/HUD/chat (heuristik först, LLM-fallback)
+  - [ ] Klient-sidigt dry-run med bekräftelse före verktygsanrop (safeguard)
+  - [ ] Slot-filling på svenska (tid, volym, språk), talord→siffror, vaga tidsuttryck
+  - [ ] NONE-policy + loggning för förbättring (träning av lexikon och few-shots)
+  - [ ] Device-fuzzy (CAST-enheter) och preferensprofil (profile store)
+  - [x] Volymintents (höj/sänk delta, nivåer, max/min/tyst) → mappas till SET_VOLUME
+  - [x] STOP/stopp → pausar och söker till 0
+  - [x] "från början" → endpoint START (seek 0) och rensas ur söktermer
+
 - [ ] **Computer Vision**
   - [ ] Camera integration for object detection
   - [ ] Facial recognition for personalization
@@ -162,6 +172,9 @@
 - [ ] HUD kan spela/pausa/hoppa/ändra volym och visa nu spelas
 - [ ] Sök och lägg till spår i kö/spellista fungerar
 - [ ] Playback fungerar via Web Playback SDK eller vald Connect‑enhet
+
+### Referenser
+- NLU/Agent-router: se `npl_ml.md` (koncept, lexikon, schema, fallback/validering, test)
 
 ### Phase 6: Distributed Intelligence (FUTURE)
 - [ ] **AI Agent Network**

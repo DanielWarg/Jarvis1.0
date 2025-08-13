@@ -1,0 +1,27 @@
+{
+  "name": "jarvis-nlu-ml",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "train": "tsx src/train.ts",
+    "auto:improve": "tsx src/auto_improve.ts && npm run train",
+    "eval": "tsx src/eval.ts",
+    "dev": "tsx src/serve.ts",
+    "start": "node dist/serve.js",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "natural": "^6.10.4",
+    "pino": "^9.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.3",
+    "typescript": "^5.5.4"
+  }
+}
+
+

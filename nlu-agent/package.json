@@ -1,0 +1,23 @@
+{
+  "name": "jarvis-nlu-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "minimist": "^1.2.8",
+    "pino": "^9.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.3",
+    "typescript": "^5.5.4"
+  }
+}
+
