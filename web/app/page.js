@@ -409,7 +409,7 @@ function HUDInner() {
   const [geoCity, setGeoCity] = useState(null);
   const [intents, setIntents] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
-  const [provider, setProvider] = useState('openai'); // default Online
+  const [provider, setProvider] = useState('local'); // default Lokal
   useEffect(()=>{ try{ const saved=localStorage.getItem('jarvis_provider'); if(saved) setProvider(saved); }catch(_){ } },[]);
   useEffect(()=>{ try{ localStorage.setItem('jarvis_provider', provider); }catch(_){ } },[provider]);
   const [toolStats, setToolStats] = useState([]);
@@ -593,7 +593,10 @@ function HUDInner() {
                     await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                     setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
                     // Chat mot backend för svar
-                    const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider })});
+                    const ctrl = new AbortController();
+                    const to = setTimeout(() => ctrl.abort(), 60000);
+                    const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider }), signal: ctrl.signal });
+                    clearTimeout(to);
                     const j = await res.json().catch(()=>null);
                     if (j && j.text) {
                       const mid = j.memory_id || null;
@@ -618,7 +621,10 @@ function HUDInner() {
                   await fetch("http://127.0.0.1:8000/api/jarvis/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                   setIntents((q) => [{ id: safeUUID(), ts: new Date().toISOString(), command: body }, ...q].slice(0, 50));
                   // Trigga chat även via Go-knappen
-                  const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider })});
+                  const ctrl = new AbortController();
+                  const to = setTimeout(() => ctrl.abort(), 60000);
+                  const res = await fetch('http://127.0.0.1:8000/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt: q, model: 'gpt-oss:20b', stream:false, provider }), signal: ctrl.signal });
+                  clearTimeout(to);
                   const j = await res.json().catch(()=>null);
                   if (j && j.text) {
                     const mid = j.memory_id || null;
