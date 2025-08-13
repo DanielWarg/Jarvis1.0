@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test:router": "tsx src/index.ts --test"
+    "test:router": "tsx src/index.ts --test",
+    "test": "tsx tests/slots_and_router.test.ts"
   },
   "dependencies": {
     "lodash": "^4.17.21",
