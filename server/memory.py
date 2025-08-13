@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 
 class MemoryStore:
@@ -103,6 +103,40 @@ class MemoryStore:
                 """
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model)")
+            # FTS5 for BM25 retrieval (external content table referencing memories)
+            try:
+                c.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+                    USING fts5(text, content='memories', content_rowid='id');
+                    """
+                )
+                # Keep FTS in sync with base table
+                c.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+                        INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text);
+                    END;
+                    """
+                )
+                c.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+                        INSERT INTO memories_fts(memories_fts, rowid, text) VALUES('delete', old.id, old.text);
+                    END;
+                    """
+                )
+                c.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+                        INSERT INTO memories_fts(memories_fts, rowid, text) VALUES('delete', old.id, old.text);
+                        INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text);
+                    END;
+                    """
+                )
+            except Exception:
+                # FTS5 may be unavailable; skip without failing init
+                pass
 
     def ping(self) -> bool:
         try:
@@ -147,6 +181,54 @@ class MemoryStore:
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in rows]
+
+    def retrieve_text_bm25_recency(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Hybrid retrieval: FTS5 BM25 followed by Python-side recency re-rank.
+        Returns top items with highest combined score.
+        """
+        try:
+            with self._conn() as c:
+                cur = c.execute(
+                    """
+                    SELECT m.id, m.ts, m.kind, m.text, m.score, m.tags,
+                           bm25(memories_fts) AS rank
+                    FROM memories_fts
+                    JOIN memories m ON m.id = memories_fts.rowid
+                    WHERE memories_fts MATCH ? AND m.kind='text'
+                    ORDER BY rank ASC
+                    LIMIT 50
+                    """,
+                    (query,)
+                )
+                rows = cur.fetchall()
+                cols = [d[0] for d in cur.description]
+                items = [dict(zip(cols, r)) for r in rows]
+        except Exception:
+            # FTS not available; fallback to LIKE
+            return self.retrieve_text_memories(query, limit)
+
+        # Combine BM25 rank (lower is better) with recency and explicit score
+        now = datetime.utcnow()
+        def to_dt(ts: str) -> Optional[datetime]:
+            if not ts:
+                return None
+            t = ts.rstrip("Z")
+            try:
+                return datetime.fromisoformat(t)
+            except Exception:
+                return None
+        rescored = []
+        for it in items:
+            rank = float(it.get("rank") or 100.0)
+            ts = to_dt(str(it.get("ts") or ""))
+            age_days = (now - ts).total_seconds() / 86400.0 if ts else 365.0
+            recency = max(0.0, 1.0 - (age_days / 30.0))  # 0..1, decays over ~1 month
+            base = float(it.get("score") or 0.0)
+            combined = (-rank) + (recency * 10.0) + (base * 1.0)
+            rescored.append((combined, it))
+        rescored.sort(key=lambda x: x[0], reverse=True)
+        top = [it for _, it in rescored[: max(1, limit)]]
+        return top
 
     def get_recent_text_memories(self, limit: int = 10):
         with self._conn() as c:

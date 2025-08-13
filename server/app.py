@@ -113,15 +113,13 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
     try:
-        # Använd hybrid retrieval via API för att återanvända pipeline
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            rr = await client.post("http://127.0.0.1:8000/api/memory/retrieve", json={"query": body.prompt, "limit": 5})
-            if rr.status_code == 200:
-                contexts = (rr.json() or {}).get("items") or []
-            else:
-                contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+        # Hybrid: använd lokalt BM25+recency om tillgängligt, annars LIKE
+        contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
     except Exception:
-        contexts = []
+        try:
+            contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+        except Exception:
+            contexts = []
     ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
     ctx_payload = [it.get('text','') for it in contexts[:3] if it.get('text')]
     full_prompt = (
@@ -241,11 +239,12 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
 async def chat_stream(body: ChatBody):
     # Förbered RAG-kontekst likt /api/chat
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            rr = await client.post("http://127.0.0.1:8000/api/memory/retrieve", json={"query": body.prompt, "limit": 5})
-            contexts = (rr.json() or {}).get("items") if rr.status_code == 200 else []
+        contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
     except Exception:
-        contexts = []
+        try:
+            contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+        except Exception:
+            contexts = []
     ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
     ctx_payload = [it.get('text','') for it in (contexts or []) if it.get('text')][:3]
     full_prompt = (("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else "") + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
