@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+      "debug-tools": {
+        "command": "node",
+        "args": ["tools/debug-server.js"],
+        "env": {},
+        "autoRun": true
+      }
+    }
+  }
+  

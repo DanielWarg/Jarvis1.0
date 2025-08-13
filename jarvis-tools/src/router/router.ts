@@ -1,4 +1,4 @@
-import { normalizeSv, extractTimeSlots, extractVolumeSlots, extractLanguage } from "./slots.js";
+import { normalizeSv, extractTimeSlots, extractVolumeSlots, extractLanguage, extractRoomSlot, extractDeviceSlot } from "./slots.js";
 
 type Match = { intent: string; score: number; phrase: string };
 
@@ -95,6 +95,12 @@ export function mapIntentToTool(input: string, intent: string): RoutedCall | nul
 }
 
 export function ruleFirstRoute(input: string): RoutedCall | null {
+  // Up-front: TRANSFER/CAST detection with room/device slots
+  const t = normalizeSv(input);
+  if (/\b(casta|cast|spela\s+pa|spela\s+p\u00e5|overfor|\u00f6verf\u00f6r|byt\s+till)\b/.test(t)) {
+    const dev = extractDeviceSlot(t) || extractRoomSlot(t);
+    if (dev) return { name: "TRANSFER", args: { device: dev } };
+  }
   const m = ruleFirstClassify(input);
   if (!m) return null;
   return mapIntentToTool(input, m.intent);

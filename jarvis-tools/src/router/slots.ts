@@ -91,3 +91,68 @@ export function extractLanguage(text: string) {
   return undefined;
 }
 
+// ────────────────────────────────────────────────────────────────────────────────
+// Room & Device slots
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const devicesJson: { canonical: string[]; aliases: Record<string, string> } = require("../lexicon/devices.json");
+
+const ROOM_ALIASES: Record<string, string> = {
+  "vardagsrummet": "vardagsrummet",
+  "vardagsrum": "vardagsrummet",
+  "v-rum": "vardagsrummet",
+  "köket": "köket",
+  "koket": "köket",
+  "kök": "köket",
+  "sovrummet": "sovrummet",
+  "sovrum": "sovrummet",
+  "kontoret": "kontoret",
+  "office": "kontoret"
+};
+
+function normalizeRoom(token: string): string | undefined {
+  const t = normalizeSv(token);
+  return ROOM_ALIASES[t];
+}
+
+function normalizeDevice(token: string): string | undefined {
+  const t = normalizeSv(token);
+  const aliases = devicesJson.aliases;
+  const canonical = devicesJson.canonical;
+  if (aliases && aliases[t]) return aliases[t];
+  if (canonical && canonical.includes(t)) return t;
+  return undefined;
+}
+
+export function extractRoomSlot(text: string): string | undefined {
+  const t = normalizeSv(text);
+  // mönster: "i köket", "i vardagsrummet", "till sovrummet", "på kontoret"
+  const m = t.match(/\b(?:i|pa|på|till)\s+([a-zåäö\-]+)\b/);
+  if (m) {
+    const room = normalizeRoom(m[1]);
+    if (room) return room;
+  }
+  // fristående nämning
+  for (const [alias, canon] of Object.entries(ROOM_ALIASES)) {
+    if (t.includes(alias)) return canon;
+  }
+  return undefined;
+}
+
+export function extractDeviceSlot(text: string): string | undefined {
+  const t = normalizeSv(text);
+  // direkta träffar
+  const tokens = t.split(/[^a-z0-9åäö]+/).filter(Boolean);
+  for (const tok of tokens) {
+    const dev = normalizeDevice(tok);
+    if (dev) return dev;
+  }
+  // frasmönster: "spela på X", "casta till X"
+  const m = t.match(/\b(?:pa|på|till)\s+([a-zåäö0-9\-\s]{2,})$/);
+  if (m) {
+    const guess = normalizeDevice(m[1].trim());
+    if (guess) return guess;
+  }
+  return undefined;
+}
+

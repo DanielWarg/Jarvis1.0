@@ -1,0 +1,25 @@
+{
+  "canonical": [
+    "tv",
+    "högtalare",
+    "spotify",
+    "chromecast",
+    "soundbar",
+    "receiver"
+  ],
+  "aliases": {
+    "stereo": "högtalare",
+    "sonos": "högtalare",
+    "sonos kök": "högtalare",
+    "sonos vardagsrum": "högtalare",
+    "spotify klient": "spotify",
+    "cast": "chromecast",
+    "kromecast": "chromecast",
+    "ljud": "högtalare",
+    "tvn": "tv",
+    "tven": "tv",
+    "sound bar": "soundbar"
+  }
+}
+
+

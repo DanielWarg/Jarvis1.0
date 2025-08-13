@@ -1,0 +1,146 @@
+{
+  "name": "Jarvis AI HUD Master Build",
+  "description": "Master project tracker for Jarvis AI HUD with NLU, voice integration (LiveKit), and tool expansion. Tracks history, current tasks, and planned phases. Auto-checks tasks via commits and tests.",
+  "autoCheck": {
+    "enabled": true,
+    "matchBy": "commit",
+    "patterns": [
+      { "keyword": "[DONE]", "status": "done" },
+      { "keyword": "[PASS]", "status": "done" },
+      { "keyword": "[FAIL]", "status": "failed" }
+    ]
+  },
+  "autoContinue": true,
+  "hooks": {
+    "beforeEachStep": {
+      "tool": "debug-tools.log",
+      "argsTemplate": { "command": "step:start", "phase": "{{phase}}", "step": "{{step}}" }
+    },
+    "afterEachStep": {
+      "tool": "debug-tools.log",
+      "argsTemplate": { "command": "step:done", "phase": "{{phase}}", "step": "{{step}}" }
+    },
+    "onError": {
+      "tool": "debug-tools.log",
+      "argsTemplate": { "command": "step:error", "phase": "{{phase}}", "step": "{{step}}", "error": "{{errorMessage}}" }
+    }
+  },
+  "phases": [
+    {
+      "phase": "Phase 1 — NLU Finalization",
+      "status": "in-progress",
+      "tasks": [
+        {
+          "name": "Room slot extractor",
+          "path": "server/nlu/slots/room.ts",
+          "criteria": "'vardagsrummet/köket' → {room:\"...\"}",
+          "command": "npm test slots-room",
+          "commitMatch": "room slot extractor",
+          "status": "pending"
+        },
+        {
+          "name": "Device/media slot extractor",
+          "path": "server/nlu/slots/device.ts",
+          "criteria": "'TV/Spotify' → {device:\"...\"}",
+          "command": "npm test slots-device",
+          "commitMatch": "device slot extractor",
+          "status": "pending"
+        },
+        {
+          "name": "Time & volume slot extractor",
+          "path": "server/nlu/slots/time_volume.ts",
+          "criteria": "'7 min', '50% vol' → correct slot",
+          "command": "npm test slots-time-volume",
+          "commitMatch": "time volume slot extractor",
+          "status": "pending"
+        },
+        {
+          "name": "Unit test coverage",
+          "path": "tests/nlu/",
+          "criteria": "≥10 time, 6 volume, 6 room/device",
+          "command": "pytest tests/nlu/",
+          "commitMatch": "unit tests nlu",
+          "status": "pending"
+        },
+        {
+          "name": "RAG + MMR fallback",
+          "path": "server/rag/",
+          "criteria": "Low-confidence → retrieval/reranking",
+          "command": "pytest tests/rag/",
+          "commitMatch": "rag mmr fallback",
+          "status": "pending"
+        },
+        {
+          "name": "Quality metrics",
+          "path": "server/nlu/metrics.py",
+          "criteria": "Slot-F1 ≥0.9 / Lat p50 <120ms / Refuse ≥95%",
+          "command": "pytest tests/nlu/metrics.py",
+          "commitMatch": "nlu metrics",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "phase": "Phase 2 — Voice & LiveKit Integration",
+      "status": "planned",
+      "tasks": [
+        { "name": "Local LiveKit server (Docker)", "commitMatch": "livekit server", "status": "pending" },
+        { "name": "STT via Whisper", "commitMatch": "whisper stt", "status": "pending" },
+        { "name": "TTS via Piper", "commitMatch": "piper tts", "status": "pending" },
+        { "name": "Wake-word & barge-in", "commitMatch": "wake word", "status": "pending" },
+        { "name": "Voice → NLU → HUD + spoken feedback", "commitMatch": "voice nlu hud", "status": "pending" },
+        { "name": "Multi-turn with memory", "commitMatch": "multi turn", "status": "pending" }
+      ]
+    },
+    {
+      "phase": "Phase 3 — Core Tool Expansion",
+      "status": "planned",
+      "tasks": [
+        { "name": "Calendar integration", "commitMatch": "calendar module", "status": "pending" },
+        { "name": "Email module", "commitMatch": "email module", "status": "pending" },
+        { "name": "Finance dashboard", "commitMatch": "finance module", "status": "pending" },
+        { "name": "Reminders system", "commitMatch": "reminders module", "status": "pending" },
+        { "name": "Video/media module", "commitMatch": "video module", "status": "pending" }
+      ]
+    },
+    {
+      "phase": "Phase 4 — RAG & Long-Term Memory",
+      "status": "planned",
+      "tasks": [
+        { "name": "Profile memory", "commitMatch": "profile memory", "status": "pending" },
+        { "name": "Contextual retrieval + re-ranking", "commitMatch": "context retrieval", "status": "pending" },
+        { "name": "External knowledge/doc integration", "commitMatch": "external docs", "status": "pending" }
+      ]
+    },
+    {
+      "phase": "Phase 5 — Quality, Optimization, UX",
+      "status": "planned",
+      "tasks": [
+        { "name": "Final latency & F1 benchmarks", "commitMatch": "final benchmarks", "status": "pending" },
+        { "name": "SQLite/performance optimization", "commitMatch": "sqlite opt", "status": "pending" },
+        { "name": "Accessibility review", "commitMatch": "accessibility", "status": "pending" },
+        { "name": "HUD polish & theming", "commitMatch": "hud polish", "status": "pending" }
+      ]
+    }
+  ],
+  "history": [
+    "AI brain setup (gpt-oss:20B + Ollama) [DONE]",
+    "Persistent memory (SQLite) [DONE]",
+    "Tool registry & Command Bus [DONE]",
+    "WebSocket + FastAPI [DONE]",
+    "HUD basic modules [DONE]",
+    "Swedish NLU initial setup [DONE]",
+    "Slot extractors (time/volume) [DONE]",
+    "Zod schema validation [DONE]",
+    "Spotify integration [DONE]",
+    "Safe Boot mode [DONE]"
+  ],
+  "mcpServers": {
+    "debug-tools": {
+      "command": "node",
+      "args": ["tools/debug-server.js"],
+      "env": {},
+      "autoRun": true
+    }
+  }
+}
