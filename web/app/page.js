@@ -414,6 +414,7 @@ function HUDInner() {
   useEffect(()=>{ try{ localStorage.setItem('jarvis_provider', provider); }catch(_){ } },[provider]);
   const [toolStats, setToolStats] = useState([]);
   const [journal, setJournal] = useState([]);
+  const [lastAnswer, setLastAnswer] = useState("");
   const [search, setSearch] = useState(null);
   const [playlists, setPlaylists] = useState({ items: [] });
   const wsRef = useRef(null);
@@ -563,6 +564,24 @@ function HUDInner() {
           </Pane>
 
           <Diagnostics />
+
+          <Pane title="Systemlogg">
+            <ul className="space-y-2 text-xs text-cyan-300/80 max-h-[40vh] overflow-auto">
+              {journal.filter(it=>{
+                const t = String(it.text||'');
+                if (!t) return false;
+                if (t.startsWith('You:') || t.startsWith('Jarvis:')) return false;
+                return (
+                  t.startsWith('WS') || t.startsWith('Heartbeat') || t.startsWith('Location:') || t.startsWith('Weather') || t.startsWith('Ack') || t.includes('Error')
+                );
+              }).map((it)=>(
+                <li key={it.id} className="rounded border border-cyan-400/10 p-2">
+                  <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
+                  <div className="text-cyan-200/90 whitespace-pre-wrap break-words">{it.text}</div>
+                </li>
+              ))}
+            </ul>
+          </Pane>
         </div>
 
         <div className="md:col-span-6 space-y-6">
@@ -602,6 +621,7 @@ function HUDInner() {
                       const mid = j.memory_id || null;
                       const who = j.provider === 'openai' ? 'GPT' : 'Jarvis';
                       setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`${who}: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
+                      try { setLastAnswer(j.text); } catch(_){ }
                     } else {
                       setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                     }
@@ -630,6 +650,7 @@ function HUDInner() {
                     const mid = j.memory_id || null;
                     const who = j.provider === 'openai' ? 'GPT' : 'Jarvis';
                     setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`${who}: ${j.text}`, memoryId: mid}, ...J].slice(0,100));
+                    try { setLastAnswer(j.text); } catch(_){ }
                   } else {
                     setJournal((J)=>[{ id:safeUUID(), ts:new Date().toISOString(), text:`Jarvis: [no response]`}, ...J].slice(0,100));
                   }
@@ -756,45 +777,14 @@ function HUDInner() {
             </div>
           </Pane>
 
-          <Pane title="Intent Queue">
-            <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
-              {intents.map((it) => {
-                const cmd = it.command || {};
-                const isUserQuery = cmd.type === 'USER_QUERY' && cmd.payload?.query;
-                const label = isUserQuery ? `User: ${cmd.payload.query}` : (cmd.type ? `Cmd: ${cmd.type}` : 'Cmd');
-                const feedbackTool = isUserQuery ? 'chat' : (cmd.type || 'hud_control');
-                return (
-                  <li key={it.id} className="rounded border border-cyan-400/10 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
-                      <div className="truncate text-cyan-200/90 max-w-[70%]" title={label}>{label}</div>
-                    </div>
-                    {!isUserQuery && (
-                      <pre className="mt-1 whitespace-pre-wrap break-words text-cyan-200/70">{JSON.stringify(cmd)}</pre>
-                    )}
-                    {!it.feedback && !isUserQuery && (
-                      <div className="mt-2 flex gap-2">
-                        <button aria-label="Feedback up" onClick={async ()=>{
-                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: true })}); } catch(_){ }
-                          // Markera som skickad feedback i listan
-                          setIntents((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'up' } : x));
-                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👍</button>
-                        <button aria-label="Feedback down" onClick={async ()=>{
-                          try { await fetch("http://127.0.0.1:8000/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ kind: "tool", tool: feedbackTool, up: false })}); } catch(_){ }
-                          setIntents((arr)=>arr.map(x=> x.id===it.id ? { ...x, feedback: 'down' } : x));
-                        }} className="rounded border border-cyan-400/30 px-2 py-0.5 text-[10px] hover:bg-cyan-400/10">👎</button>
-                      </div>
-                    )}
-                    {isUserQuery && (
-                      <div className="mt-2 text-[10px] text-cyan-300/70">User query</div>
-                    )}
-                    {it.feedback && (
-                      <div className="mt-2 text-[10px] text-cyan-300/80">Tack! Sparat {it.feedback === 'up' ? '👍' : '👎'}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+          <Pane title="Svar">
+            <div className="rounded-xl border border-cyan-400/10 p-4 text-sm text-cyan-100 whitespace-pre-wrap break-words min-h-[180px]">
+              {lastAnswer ? lastAnswer : 'Inga svar ännu'}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button aria-label="Kopiera" onClick={()=>{ try{ navigator.clipboard.writeText(lastAnswer||''); }catch(_){ } }} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Kopiera</button>
+              <button aria-label="Rensa" onClick={()=> setLastAnswer('')} className="rounded-xl border border-cyan-400/30 px-3 py-1 text-xs hover:bg-cyan-400/10">Rensa</button>
+            </div>
           </Pane>
 
           <Pane title="Journal">

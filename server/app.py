@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
+MINIMAL_MODE = os.getenv("JARVIS_MINIMAL", "0") == "1"
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,19 +113,24 @@ class ChatBody(BaseModel):
 async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
-    try:
-        # Hybrid: använd lokalt BM25+recency om tillgängligt, annars LIKE
-        contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
-    except Exception:
+    if MINIMAL_MODE:
+        contexts = []
+        ctx_payload = []
+        full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+    else:
         try:
-            contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+            # Hybrid: använd lokalt BM25+recency om tillgängligt, annars LIKE
+            contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
         except Exception:
-            contexts = []
-    ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
-    ctx_payload = [it.get('text','') for it in contexts[:3] if it.get('text')]
-    full_prompt = (
-        ("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else ""
-    ) + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+            try:
+                contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+            except Exception:
+                contexts = []
+        ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+        ctx_payload = [it.get('text','') for it in contexts[:3] if it.get('text')]
+        full_prompt = (
+            ("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else ""
+        ) + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
     try:
         memory.append_event("chat.in", json.dumps({"prompt": body.prompt}, ensure_ascii=False))
     except Exception:
@@ -242,16 +248,21 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
 @app.post("/api/chat/stream")
 async def chat_stream(body: ChatBody):
     # Förbered RAG-kontekst likt /api/chat
-    try:
-        contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
-    except Exception:
+    if MINIMAL_MODE:
+        contexts = []
+        ctx_payload = []
+        full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+    else:
         try:
-            contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+            contexts = memory.retrieve_text_bm25_recency(body.prompt, limit=5)
         except Exception:
-            contexts = []
-    ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
-    ctx_payload = [it.get('text','') for it in (contexts or []) if it.get('text')][:3]
-    full_prompt = (("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else "") + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
+            try:
+                contexts = memory.retrieve_text_memories(body.prompt, limit=5)
+            except Exception:
+                contexts = []
+        ctx_text = "\n".join([f"- {it.get('text','')}" for it in (contexts or []) if it.get('text')])
+        ctx_payload = [it.get('text','') for it in (contexts or []) if it.get('text')][:3]
+        full_prompt = (("Relevanta minnen:\n" + ctx_text + "\n\n") if ctx_text else "") + f"Använd relevant kontext ovan vid behov. Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
 
     provider = (body.provider or "auto").lower()
 
