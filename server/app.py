@@ -146,14 +146,14 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
     async def try_local():
         try:
             t0 = time.time()
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(
                     "http://127.0.0.1:11434/api/generate",
                     json={
                         "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
                         "prompt": full_prompt,
                         "stream": False,
-                        "options": {"num_predict": 256, "temperature": 0.3},
+                        "options": {"num_predict": 512, "temperature": 0.3},
                     },
                 )
                 if r.status_code == 200:

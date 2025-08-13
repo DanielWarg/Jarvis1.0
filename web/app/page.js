@@ -514,7 +514,7 @@ function HUDInner() {
   const fmtTime = (ms)=>{ if(!ms) return '0:00'; const s=Math.floor(ms/1000); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; };
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[#030b10] text-cyan-100">
+    <div className="relative min-h-screen w-full overflow-x-hidden overflow-y-auto bg-[#030b10] text-cyan-100">
       <ThreeBGAdvanced />
       <div className="pointer-events-none absolute inset-0 [background:radial-gradient(ellipse_at_top,rgba(13,148,136,.15),transparent_60%),radial-gradient(ellipse_at_bottom,rgba(3,105,161,.12),transparent_60%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(#0e7490_1px,transparent_1px),linear-gradient(90deg,#0e7490_1px,transparent_1px)] bg-[size:40px_40px] opacity-10" />
@@ -792,13 +792,13 @@ function HUDInner() {
           </Pane>
 
           <Pane title="Journal">
-            <ul className="space-y-2 text-xs text-cyan-300/80 max-h-56 overflow-auto">
+            <ul className="space-y-2 text-xs text-cyan-300/80">
               {journal.map((it) => {
                 const isJarvis = typeof it.text === 'string' && it.text.startsWith('Jarvis:');
                 return (
                   <li key={it.id} className="rounded border border-cyan-400/10 p-2">
                     <div className="text-cyan-400/80">{new Date(it.ts).toLocaleTimeString()}</div>
-                    <div className="text-cyan-200/90 break-words">{it.text}</div>
+                    <div className="text-cyan-200/90 whitespace-pre-wrap break-words">{it.text}</div>
                     {isJarvis && !it.feedback && (
                       <div className="mt-2 flex gap-2">
                         <button aria-label="Jarvis up" onClick={async ()=>{
