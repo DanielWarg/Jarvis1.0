@@ -66,7 +66,7 @@ pip install -r requirements.txt || true
 ### Fas 9 – Utrullning i små PR:er
 - [x] PR1: flaggor + Harmony-adapter (final-extraktion/stream), inga verktyg
 - [x] PR2: tool-registry + validering kopplats, `USE_TOOLS=false`
-- [ ] PR3: aktivera `USE_TOOLS=true` för 2–3 verktyg + "no-tool-if-unsure"
+- [x] PR3: aktivera `USE_TOOLS=true` för 2–3 verktyg + "no-tool-if-unsure"
 - [x] PR4: router-först med tröskel
 - [x] PR5: telemetri + syntetiska evals
 

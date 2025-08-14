@@ -57,6 +57,21 @@ if os.getenv("HARMONY_TEMPERATURE_COMMANDS") is None:
     else:
         HARMONY_TEMPERATURE_COMMANDS = 0.2
 
+# Verktygs-whitelist för PR3 (aktivera 2–3 verktyg initialt)
+_enabled_tools_env = os.getenv("ENABLED_TOOLS")
+if _enabled_tools_env is None:
+    # Default: aktivera enbart PLAY/PAUSE/SET_VOLUME i första steget
+    ENABLED_TOOLS = {"PLAY", "PAUSE", "SET_VOLUME"} if USE_TOOLS else set()
+else:
+    ENABLED_TOOLS = {t.strip().upper() for t in _enabled_tools_env.split(",") if t.strip()}
+
+
+def _is_tool_enabled(name: str) -> bool:
+    try:
+        return (name or "").upper() in ENABLED_TOOLS
+    except Exception:
+        return False
+
 
 def _harmony_system_prompt() -> str:
     return SP() + " För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
@@ -370,6 +385,9 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         if plan and USE_TOOLS:
             name = str(plan.get("tool") or plan.get("name") or "")
             args = plan.get("params") or plan.get("args") or {}
+            if not _is_tool_enabled(name):
+                logger.info("router tool disabled name=%s", name)
+                raise RuntimeError("router_tool_disabled")
             t_tool = time.time()
             res = validate_and_execute_tool(name, args, memory)
             if res.get("ok"):
@@ -645,6 +663,36 @@ async def chat_stream(body: ChatBody):
             if plan:
                 name = str(plan.get("tool") or plan.get("name") or "")
                 args = plan.get("params") or plan.get("args") or {}
+                if not _is_tool_enabled(name):
+                    async for out in sse_send({"type": "tool_called", "name": name, "args": args, "disabled": True}):
+                        yield out
+                    # Fortsätt till LLM-stream
+                else:
+                    async for out in sse_send({"type": "tool_called", "name": name, "args": args}):
+                        yield out
+                    t_tool = time.time()
+                    res = validate_and_execute_tool(name, args, memory)
+                    async for out in sse_send({"type": "tool_result", "ok": bool(res.get("ok")), "result": res}):
+                        yield out
+                    if res.get("ok"):
+                        confirm = _format_tool_confirmation(name, args)
+                        emitted = True
+                        metrics.record_router_hit()
+                        metrics.record_tool_call_attempted()
+                        metrics.record_tool_call_latency((time.time() - t_tool) * 1000)
+                        metrics.record_first_token((time.time() - t_request) * 1000)
+                        final_text += confirm
+                        async for out in sse_send({"type": "chunk", "text": confirm}):
+                            yield out
+                        mem_id = None
+                        try:
+                            tags = {"source": "chat", "provider": "router"}
+                            mem_id = memory.upsert_text_memory(confirm, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+                        except Exception:
+                            pass
+                        async for out in sse_send({"type": "done", "provider": "router", "memory_id": mem_id}):
+                            yield out
+                        return
                 async for out in sse_send({"type": "tool_called", "name": name, "args": args}):
                     yield out
                 res = validate_and_execute_tool(name, args, memory)
