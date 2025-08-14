@@ -1,0 +1,76 @@
+{
+  "cases": [
+    {
+      "text": "spela upp",
+      "expect": {
+        "source": "router",
+        "tool": "PLAY",
+        "args": {},
+        "comment": "Exakt matchning bör gå via router"
+      }
+    },
+    {
+      "text": "kan du spela lite musik",
+      "expect": {
+        "source": "harmony",
+        "tool": "PLAY",
+        "args": {},
+        "comment": "Naturligt språk bör gå via Harmony"
+      }
+    },
+    {
+      "text": "pausa",
+      "expect": {
+        "source": "router",
+        "tool": "PAUSE",
+        "args": {},
+        "comment": "Exakt matchning bör gå via router"
+      }
+    },
+    {
+      "text": "skulle du kunna pausa i några minuter",
+      "expect": {
+        "source": "harmony",
+        "tool": "PAUSE",
+        "args": {},
+        "comment": "Naturligt språk bör gå via Harmony"
+      }
+    },
+    {
+      "text": "höj volymen",
+      "expect": {
+        "source": "router",
+        "tool": "SET_VOLUME",
+        "args": {"delta": 10},
+        "comment": "Exakt matchning med standardargument bör gå via router"
+      }
+    },
+    {
+      "text": "höj volymen till 80%",
+      "expect": {
+        "source": "harmony",
+        "tool": "SET_VOLUME",
+        "args": {"level": 80},
+        "comment": "Specifik volymnivå bör tolkas av Harmony"
+      }
+    },
+    {
+      "text": "sänk volymen lite",
+      "expect": {
+        "source": "harmony",
+        "tool": "SET_VOLUME",
+        "args": {"delta": -10},
+        "comment": "Relativ volymändring med naturligt språk bör gå via Harmony"
+      }
+    },
+    {
+      "text": "sätt volymen till 50 procent",
+      "expect": {
+        "source": "harmony",
+        "tool": "SET_VOLUME",
+        "args": {"level": 50},
+        "comment": "Exakt volymnivå med naturligt språk bör gå via Harmony"
+      }
+    }
+  ]
+}

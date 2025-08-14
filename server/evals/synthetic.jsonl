@@ -1,0 +1,51 @@
+{"kind":"tool_required","text":"spela upp","expect_any_of":["PLAY"]}
+{"kind":"tool_required","text":"pausa musiken","expect_any_of":["PAUSE"]}
+{"kind":"tool_required","text":"höj volymen","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sänk volymen 15%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sätt volymen på 30%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"höj 20%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sänk 10%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"volym 50","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sätt volym till hundra","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"höj volymen lite","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sänk volymen lite","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"höj till 70%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"sänk till 5%","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"volymen 0","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"max volym","expect_any_of":["SET_VOLUME"]}
+{"kind":"tool_required","text":"ljud av","expect_any_of":["SET_VOLUME","MUTE"]}
+{"kind":"tool_required","text":"ljud på","expect_any_of":["SET_VOLUME","UNMUTE"]}
+{"kind":"tool_required","text":"fortsätt spela","expect_any_of":["PLAY"]}
+{"kind":"tool_required","text":"paus","expect_any_of":["PAUSE"]}
+{"kind":"tool_required","text":"starta uppspelning","expect_any_of":["PLAY"]}
+{"kind":"chat_only","text":"vad tycker du om låten?"}
+{"kind":"chat_only","text":"berätta något kul"}
+{"kind":"chat_only","text":"hur mår du idag?"}
+{"kind":"chat_only","text":"vad är vädret i Stockholm? (utan verktyg)"}
+{"kind":"chat_only","text":"vilken är din favoritgenre?"}
+{"kind":"chat_only","text":"skriv en haiku om musik"}
+{"kind":"chat_only","text":"förklara hur volym fungerar"}
+{"kind":"chat_only","text":"ge tips på bra spellistor"}
+{"kind":"chat_only","text":"ska jag köpa nya hörlurar?"}
+{"kind":"chat_only","text":"vad gör en equalizer?"}
+{"kind":"chat_only","text":"hur funkar spotify connect?"}
+{"kind":"chat_only","text":"berätta om AC/DC"}
+{"kind":"chat_only","text":"tips på högtalare under 2000 kr"}
+{"kind":"chat_only","text":"vad innebär dynamiskt omfång?"}
+{"kind":"chat_only","text":"när kom första cd-skivan?"}
+{"kind":"chat_only","text":"hur funkar noise cancelling?"}
+{"kind":"chat_only","text":"hur kopplar jag bluetooth?"}
+{"kind":"chat_only","text":"ge mig en rolig fakta om musik"}
+{"kind":"chat_only","text":"rekommendera ett album"}
+{"kind":"chat_only","text":"vem är din favoritartist?"}
+{"kind":"missing_params","text":"kan du fixa det där?"}
+{"kind":"missing_params","text":"gör det bättre"}
+{"kind":"missing_params","text":"höj"}
+{"kind":"missing_params","text":"sänk"}
+{"kind":"missing_params","text":"sätt volymen"}
+{"kind":"missing_params","text":"uppspelning"}
+{"kind":"missing_params","text":"ljud"}
+{"kind":"missing_params","text":"volym"}
+{"kind":"missing_params","text":"kan du ordna det?"}
+{"kind":"missing_params","text":"fixa"}
+

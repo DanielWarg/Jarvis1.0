@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, Optional, Set, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from fastapi.responses import ORJSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -21,7 +21,12 @@ from urllib.parse import urlencode
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
+from .prompts.system_prompts import system_prompt as SP, developer_prompt as DP
+from .metrics import metrics
 from .training import stream_dataset
+from .memory import MemoryStore
+from .tools.registry import list_tool_specs, validate_and_execute_tool
+from .harmony_test_endpoint import HarmonyTestBatchRequest, HarmonyTestBatchResponse, run_harmony_test_case
 
 
 load_dotenv()
@@ -30,6 +35,130 @@ logger = logging.getLogger("jarvis")
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
 MINIMAL_MODE = os.getenv("JARVIS_MINIMAL", "0") == "1"
+# Harmony feature flags (Fas 1 – adapter bakom flaggor)
+USE_HARMONY = (os.getenv("USE_HARMONY", "false").lower() == "true")
+USE_TOOLS = (os.getenv("USE_TOOLS", "false").lower() == "true")
+try:
+    HARMONY_TEMPERATURE_COMMANDS = float(os.getenv("HARMONY_TEMPERATURE_COMMANDS", "0.2"))
+except Exception:
+    HARMONY_TEMPERATURE_COMMANDS = 0.2
+try:
+    NLU_CONFIDENCE_THRESHOLD = float(os.getenv("NLU_CONFIDENCE_THRESHOLD", "0.85"))
+except Exception:
+    NLU_CONFIDENCE_THRESHOLD = 0.85
+NLU_AGENT_URL = os.getenv("NLU_AGENT_URL", "http://127.0.0.1:7071")
+
+# Optional: styr resonemangsnivå (påverkar temp om HARMONY_TEMPERATURE_COMMANDS inte satts)
+HARMONY_REASONING_LEVEL = (os.getenv("HARMONY_REASONING_LEVEL", "low").strip().lower())
+if os.getenv("HARMONY_TEMPERATURE_COMMANDS") is None:
+    if HARMONY_REASONING_LEVEL == "high":
+        HARMONY_TEMPERATURE_COMMANDS = 0.5
+    elif HARMONY_REASONING_LEVEL == "medium":
+        HARMONY_TEMPERATURE_COMMANDS = 0.35
+    else:
+        HARMONY_TEMPERATURE_COMMANDS = 0.2
+
+# Verktygs-whitelist för PR3 (aktivera 2–3 verktyg initialt)
+_enabled_tools_env = os.getenv("ENABLED_TOOLS")
+if _enabled_tools_env is None:
+    # Default: aktivera enbart PLAY/PAUSE/SET_VOLUME i första steget
+    ENABLED_TOOLS = {"PLAY", "PAUSE", "SET_VOLUME"} if USE_TOOLS else set()
+else:
+    ENABLED_TOOLS = {t.strip().upper() for t in _enabled_tools_env.split(",") if t.strip()}
+
+
+def _is_tool_enabled(name: str) -> bool:
+    try:
+        return (name or "").upper() in ENABLED_TOOLS
+    except Exception:
+        return False
+
+
+def _harmony_system_prompt() -> str:
+    return SP() + " För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
+
+
+def _harmony_developer_prompt() -> str:
+    return DP()
+
+
+def _extract_final(text: str) -> str:
+    try:
+        start = text.find("[FINAL]")
+        end = text.find("[/FINAL]")
+        if start != -1 and end != -1 and end > start:
+            return text[start + len("[FINAL]"):end].strip()
+    except Exception:
+        pass
+    return (text or "").strip()
+
+
+def _maybe_parse_tool_call(text: str) -> Optional[Dict[str, Any]]:
+    """Detektera ett verktygsanrop i modellens svar.
+    Stödjer två format:
+    1) Prefix-taggen [TOOL_CALL]{...}
+    2) Naket JSON som innehåller fälten {"tool": NAME, "args": {...}}
+    Returnerar {"tool": str, "args": dict} eller None.
+    """
+    try:
+        if not text:
+            return None
+        s = text.strip()
+        # 1) [TOOL_CALL]{json}
+        if s.startswith("[TOOL_CALL]"):
+            s = s[len("[TOOL_CALL]"):].lstrip()
+        # Försök att hitta ett JSON-objekt
+        import re as _re
+        m = _re.search(r"\{[\s\S]*\}", s)
+        if not m:
+            return None
+        candidate = json.loads(m.group(0))
+        if isinstance(candidate, dict) and isinstance(candidate.get("tool"), str):
+            args = candidate.get("args") or {}
+            if isinstance(args, dict):
+                return {"tool": candidate["tool"], "args": args}
+    except Exception:
+        return None
+    return None
+
+async def _router_first_try(prompt: str) -> Optional[Dict[str, Any]]:
+    """Fråga NLU/Agent-routern om ett verktyg kan köras med hög confidence.
+    Returnerar plan-dict eller None.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as client:
+            r = await client.post(f"{NLU_AGENT_URL}/agent/route", json={"text": prompt})
+            if r.status_code != 200:
+                return None
+            j = r.json() or {}
+            plan = j.get("plan")
+            conf = float(j.get("confidence") or 0.0)
+            if plan and conf >= NLU_CONFIDENCE_THRESHOLD:
+                return plan
+    except Exception:
+        return None
+    return None
+
+
+def _format_tool_confirmation(name: str, args: Dict[str, Any]) -> str:
+    n = (name or "").upper()
+    a = args or {}
+    if n == "PLAY":
+        return "Spelar upp."
+    if n == "PAUSE":
+        return "Pausar."
+    if n == "SET_VOLUME":
+        if isinstance(a.get("level"), int):
+            return f"Volym satt till {a['level']}%."
+        if isinstance(a.get("delta"), int):
+            d = a['delta']
+            return f"Volym {'höjd' if d>0 else 'sänkt'} med {abs(d)}%."
+        return "Volym uppdaterad."
+    if n == "SAY":
+        return str(a.get("text") or "")
+    if n == "DISPLAY":
+        return str(a.get("text") or "")
+    return "Klart."
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +167,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Harmony E2E test endpoint (kan stängas av i prod via proxy)
+router = APIRouter()
+
+@router.post("/harmony/test", response_model=HarmonyTestBatchResponse)
+async def harmony_test(req: HarmonyTestBatchRequest):
+    results = []
+    for case in req.cases:
+        res = await run_harmony_test_case(case, req)
+        results.append(res)
+    passed = sum(1 for r in results if r.passed)
+    failed = len(results) - passed
+    summary = {
+        "total": len(results),
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": round(100.0 * passed / max(1, len(results)), 2),
+    }
+    return HarmonyTestBatchResponse(results=results, summary=summary)
+
+app.include_router(router)
 
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -61,7 +211,7 @@ class JarvisResponse(BaseModel):
 
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
-    return {"status": "ok", "db": memory.ping(), "ts": datetime.utcnow().isoformat() + "Z"}
+    return {"status": "ok", "db": memory.ping(), "ts": datetime.utcnow().isoformat() + "Z", "harmony": USE_HARMONY, "tools": USE_TOOLS}
 
 
 @app.post("/api/jarvis/command", response_model=JarvisResponse)
@@ -102,18 +252,46 @@ async def pick_tool(body: ToolPickBody) -> Dict[str, Any]:
     return {"ok": True, "tool": choice}
 
 
+class ExecToolBody(BaseModel):
+    name: str
+    args: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/tools/exec")
+async def tools_exec(body: ExecToolBody) -> Dict[str, Any]:
+    if not USE_TOOLS:
+        return {"ok": False, "error": "tools_disabled"}
+    res = validate_and_execute_tool(body.name, body.args or {}, memory)
+    # Enkel telemetri
+    try:
+        if res.get("ok"):
+            memory.update_tool_stats(body.name, success=True)
+        else:
+            memory.update_tool_stats(body.name, success=False)
+    except Exception:
+        pass
+    return res
+
+
+@app.get("/api/tools/specs")
+async def tools_specs() -> Dict[str, Any]:
+    return {"ok": True, "items": list_tool_specs()}
+
+
 class ChatBody(BaseModel):
     prompt: str
     model: Optional[str] = "gpt-oss:20b"
     stream: Optional[bool] = False
     provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
+    raw: Optional[bool] = False         # when True → no RAG/context, clean reply
 
 
 @app.post("/api/chat")
 async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
+    t_request = time.time()
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
-    if MINIMAL_MODE:
+    if MINIMAL_MODE or bool(body.raw):
         contexts = []
         ctx_payload = []
         full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
@@ -157,16 +335,22 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     "http://127.0.0.1:11434/api/generate",
                     json={
                         "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
-                        "prompt": full_prompt,
+                        "prompt": (f"System: {_harmony_system_prompt()}\nDeveloper: {_harmony_developer_prompt()}\nUser: {full_prompt}\nSvar: ") if USE_HARMONY else full_prompt,
                         "stream": False,
-                        "options": {"num_predict": 512, "temperature": 0.3},
+                        "options": {"num_predict": 512, "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.3},
                     },
                 )
                 if r.status_code == 200:
                     data = r.json()
                     dt = (time.time() - t0) * 1000
                     logger.info("chat local ms=%.0f", dt)
-                    local_text = (data.get("response", "") or "").strip()
+                    raw_text = (data.get("response", "") or "").strip()
+                    local_text = _extract_final(raw_text) if USE_HARMONY else raw_text
+                    if USE_HARMONY:
+                        try:
+                            logger.debug("harmony.final.extracted provider=local len=%d", len(local_text))
+                        except Exception:
+                            pass
                     if not local_text:
                         return RuntimeError("local_empty")
                     return await respond(local_text, used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
@@ -187,17 +371,29 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                        "messages": [
-                            {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
-                            {"role": "user", "content": full_prompt},
-                        ],
-                        "temperature": 0.5,
+                        "messages": (
+                            [
+                                {"role": "system", "content": _harmony_system_prompt()},
+                                {"role": "developer", "content": _harmony_developer_prompt()},
+                                {"role": "user", "content": full_prompt},
+                            ] if USE_HARMONY else [
+                                {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                                {"role": "user", "content": full_prompt},
+                            ]
+                        ),
+                        "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.5,
                         "max_tokens": 256,
                     },
                 )
                 if r.status_code == 200:
                     data = r.json()
-                    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    raw_text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    text = _extract_final(raw_text) if USE_HARMONY else raw_text
+                    if USE_HARMONY:
+                        try:
+                            logger.debug("harmony.final.extracted provider=openai len=%d", len(text))
+                        except Exception:
+                            pass
                     dt = (time.time() - t0) * 1000
                     logger.info("chat openai ms=%.0f", dt)
                     return await respond(text, used_provider="openai", engine=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
@@ -206,6 +402,26 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         return RuntimeError("openai_failed")
 
     try:
+        # Router-först: snabba intents exekveras direkt utan LLM om high-confidence
+        plan = await _router_first_try(body.prompt)
+        if plan and USE_TOOLS:
+            name = str(plan.get("tool") or plan.get("name") or "")
+            args = plan.get("params") or plan.get("args") or {}
+            if not _is_tool_enabled(name):
+                logger.info("router tool disabled name=%s", name)
+                raise RuntimeError("router_tool_disabled")
+            t_tool = time.time()
+            res = validate_and_execute_tool(name, args, memory)
+            if res.get("ok"):
+                metrics.record_router_hit()
+                metrics.record_tool_call_attempted()
+                metrics.record_tool_call_latency((time.time() - t_tool) * 1000)
+                metrics.record_final_latency((time.time() - t_request) * 1000)
+                msg = _format_tool_confirmation(name, args)
+                return {"ok": True, "text": msg, "memory_id": None, "provider": "router", "engine": None}
+            # vid valideringsfel → fall-through till LLM
+            metrics.record_tool_validation_failed()
+
         if provider == "local":
             res = await try_local()
             if isinstance(res, dict):
@@ -227,6 +443,8 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     # cancel the slower one
                     for p in pending:
                         p.cancel()
+                    metrics.record_llm_hit()
+                    metrics.record_final_latency((time.time() - t_request) * 1000)
                     return res
                 last_error = res
             # if first completed wasn't dict, wait the other
@@ -234,6 +452,8 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                 try:
                     res = await p
                     if isinstance(res, dict) and (res.get("text") or "").strip():
+                        metrics.record_llm_hit()
+                        metrics.record_final_latency((time.time() - t_request) * 1000)
                         return res
                     last_error = res
                 except asyncio.CancelledError:
@@ -242,13 +462,14 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
     stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
+    metrics.record_final_latency((time.time() - t_request) * 1000)
     return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None, "contexts": ctx_payload}
 
 
 @app.post("/api/chat/stream")
 async def chat_stream(body: ChatBody):
     # Förbered RAG-kontekst likt /api/chat
-    if MINIMAL_MODE:
+    if MINIMAL_MODE or bool(body.raw):
         contexts = []
         ctx_payload = []
         full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
@@ -267,9 +488,14 @@ async def chat_stream(body: ChatBody):
     provider = (body.provider or "auto").lower()
 
     async def gen():
+        t_request = time.time()
         final_text = ""
         used_provider = None
         emitted = False
+        # För Harmony-streaming: buffra och extrahera endast [FINAL]...[/FINAL]
+        final_started = False
+        final_ended = False
+        buffer_text = ""
 
         async def sse_send(obj):
             yield f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
@@ -285,11 +511,17 @@ async def chat_stream(body: ChatBody):
                         headers={"Authorization": f"Bearer {api_key}"},
                         json={
                             "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                            "messages": [
-                                {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
-                                {"role": "user", "content": full_prompt},
-                            ],
-                            "temperature": 0.5,
+                            "messages": (
+                                [
+                                    {"role": "system", "content": _harmony_system_prompt()},
+                                    {"role": "developer", "content": _harmony_developer_prompt()},
+                                    {"role": "user", "content": full_prompt},
+                                ] if USE_HARMONY else [
+                                    {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                                    {"role": "user", "content": full_prompt},
+                                ]
+                            ),
+                            "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.5,
                             "stream": True,
                             "max_tokens": 256,
                         },
@@ -307,11 +539,57 @@ async def chat_stream(body: ChatBody):
                                 break
                             try:
                                 obj = json.loads(data)
-                                delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
-                                if delta:
+                                raw_delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                                if not raw_delta:
+                                    continue
+                                if USE_HARMONY:
+                                    nonlocal final_started, final_ended, buffer_text
+                                    buffer_text += raw_delta
+                                    out_chunk = ""
+                                    if not final_started:
+                                        si = buffer_text.find("[FINAL]")
+                                        if si != -1:
+                                            final_started = True
+                                            buffer_text = buffer_text[si + len("[FINAL]"):]
+                                            try:
+                                                logger.debug("harmony.final.start provider=openai")
+                                            except Exception:
+                                                pass
+                                    if final_started and not final_ended:
+                                        ei = buffer_text.find("[/FINAL]")
+                                        if ei != -1:
+                                            out_chunk = buffer_text[:ei]
+                                            final_ended = True
+                                            buffer_text = ""
+                                            try:
+                                                logger.debug("harmony.final.end provider=openai")
+                                            except Exception:
+                                                pass
+                                        else:
+                                            out_chunk = buffer_text
+                                            buffer_text = ""
+                                    if out_chunk:
+                                        emitted = True
+                                        if len(final_text) == 0:
+                                            # first token latency
+                                            try:
+                                                from .metrics import metrics as _metrics
+                                                _metrics.record_first_token((time.time() - t_request) * 1000)
+                                            except Exception:
+                                                pass
+                                        final_text += out_chunk
+                                        async for out in sse_send({"type": "chunk", "text": out_chunk}):
+                                            yield out
+                                else:
                                     emitted = True
-                                    final_text += delta
-                                    async for out in sse_send({"type": "chunk", "text": delta}):
+                                    if len(final_text) == 0:
+                                        try:
+                                            from .metrics import metrics as _metrics
+                                            _metrics.record_first_token((time.time() - t_request) * 1000)
+                                        except Exception:
+                                            pass
+                                    final_text += raw_delta
+                                    async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                         yield out
                             except Exception:
                                 continue
@@ -325,9 +603,9 @@ async def chat_stream(body: ChatBody):
                         "http://127.0.0.1:11434/api/generate",
                         json={
                             "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
-                            "prompt": full_prompt,
+                            "prompt": (f"System: {_harmony_system_prompt()}\nDeveloper: {_harmony_developer_prompt()}\nUser: {full_prompt}\nSvar: ") if USE_HARMONY else full_prompt,
                             "stream": True,
-                            "options": {"num_predict": 256, "temperature": 0.3},
+                            "options": {"num_predict": 256, "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.3},
                         },
                     )
                     if r.status_code != 200:
@@ -341,11 +619,56 @@ async def chat_stream(body: ChatBody):
                             obj = json.loads(line)
                             if obj.get("done"):
                                 break
-                            delta = obj.get("response")
-                            if delta:
+                            raw_delta = obj.get("response")
+                            if not raw_delta:
+                                continue
+                            if USE_HARMONY:
+                                nonlocal final_started, final_ended, buffer_text
+                                buffer_text += raw_delta
+                                out_chunk = ""
+                                if not final_started:
+                                    si = buffer_text.find("[FINAL]")
+                                    if si != -1:
+                                        final_started = True
+                                        buffer_text = buffer_text[si + len("[FINAL]"):]
+                                        try:
+                                            logger.debug("harmony.final.start provider=local")
+                                        except Exception:
+                                            pass
+                                if final_started and not final_ended:
+                                    ei = buffer_text.find("[/FINAL]")
+                                    if ei != -1:
+                                        out_chunk = buffer_text[:ei]
+                                        final_ended = True
+                                        buffer_text = ""
+                                        try:
+                                            logger.debug("harmony.final.end provider=local")
+                                        except Exception:
+                                            pass
+                                    else:
+                                        out_chunk = buffer_text
+                                        buffer_text = ""
+                                if out_chunk:
+                                    emitted = True
+                                    if len(final_text) == 0:
+                                        try:
+                                            from .metrics import metrics as _metrics
+                                            _metrics.record_first_token((time.time() - t_request) * 1000)
+                                        except Exception:
+                                            pass
+                                    final_text += out_chunk
+                                    async for out in sse_send({"type": "chunk", "text": out_chunk}):
+                                        yield out
+                            else:
                                 emitted = True
-                                final_text += delta
-                                async for out in sse_send({"type": "chunk", "text": delta}):
+                                if len(final_text) == 0:
+                                    try:
+                                        from .metrics import metrics as _metrics
+                                        _metrics.record_first_token((time.time() - t_request) * 1000)
+                                    except Exception:
+                                        pass
+                                final_text += raw_delta
+                                async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                     yield out
                         except Exception:
                             continue
@@ -355,6 +678,63 @@ async def chat_stream(body: ChatBody):
         # skicka meta först
         async for out in sse_send({"type": "meta", "contexts": ctx_payload}):
             yield out
+
+        # Router-först även för streaming: exekvera verktyg direkt och streama endast final-bekräftelse
+        if USE_TOOLS:
+            plan = await _router_first_try(body.prompt)
+            if plan:
+                name = str(plan.get("tool") or plan.get("name") or "")
+                args = plan.get("params") or plan.get("args") or {}
+                if not _is_tool_enabled(name):
+                    async for out in sse_send({"type": "tool_called", "name": name, "args": args, "disabled": True}):
+                        yield out
+                    # Fortsätt till LLM-stream
+                else:
+                    async for out in sse_send({"type": "tool_called", "name": name, "args": args}):
+                        yield out
+                    t_tool = time.time()
+                    res = validate_and_execute_tool(name, args, memory)
+                    async for out in sse_send({"type": "tool_result", "ok": bool(res.get("ok")), "result": res}):
+                        yield out
+                    if res.get("ok"):
+                        confirm = _format_tool_confirmation(name, args)
+                        emitted = True
+                        metrics.record_router_hit()
+                        metrics.record_tool_call_attempted()
+                        metrics.record_tool_call_latency((time.time() - t_tool) * 1000)
+                        metrics.record_first_token((time.time() - t_request) * 1000)
+                        final_text += confirm
+                        async for out in sse_send({"type": "chunk", "text": confirm}):
+                            yield out
+                        mem_id = None
+                        try:
+                            tags = {"source": "chat", "provider": "router"}
+                            mem_id = memory.upsert_text_memory(confirm, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+                        except Exception:
+                            pass
+                        async for out in sse_send({"type": "done", "provider": "router", "memory_id": mem_id}):
+                            yield out
+                        return
+                async for out in sse_send({"type": "tool_called", "name": name, "args": args}):
+                    yield out
+                res = validate_and_execute_tool(name, args, memory)
+                async for out in sse_send({"type": "tool_result", "ok": bool(res.get("ok")), "result": res}):
+                    yield out
+                if res.get("ok"):
+                    confirm = _format_tool_confirmation(name, args)
+                    emitted = True
+                    final_text += confirm
+                    async for out in sse_send({"type": "chunk", "text": confirm}):
+                        yield out
+                    mem_id = None
+                    try:
+                        tags = {"source": "chat", "provider": "router"}
+                        mem_id = memory.upsert_text_memory(confirm, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+                    except Exception:
+                        pass
+                    async for out in sse_send({"type": "done", "provider": "router", "memory_id": mem_id}):
+                        yield out
+                    return
 
         if provider == "openai":
             async for out in openai_stream():
@@ -376,6 +756,11 @@ async def chat_stream(body: ChatBody):
             if final_text:
                 tags = {"source": "chat", "provider": used_provider}
                 mem_id = memory.upsert_text_memory(final_text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+        except Exception:
+            pass
+        try:
+            from .metrics import metrics as _metrics
+            _metrics.record_final_latency((time.time() - t_request) * 1000)
         except Exception:
             pass
         async for out in sse_send({"type": "done", "provider": used_provider, "memory_id": mem_id}):
