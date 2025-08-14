@@ -67,6 +67,34 @@ def _extract_final(text: str) -> str:
     return (text or "").strip()
 
 
+def _maybe_parse_tool_call(text: str) -> Optional[Dict[str, Any]]:
+    """Detektera ett verktygsanrop i modellens svar.
+    Stödjer två format:
+    1) Prefix-taggen [TOOL_CALL]{...}
+    2) Naket JSON som innehåller fälten {"tool": NAME, "args": {...}}
+    Returnerar {"tool": str, "args": dict} eller None.
+    """
+    try:
+        if not text:
+            return None
+        s = text.strip()
+        # 1) [TOOL_CALL]{json}
+        if s.startswith("[TOOL_CALL]"):
+            s = s[len("[TOOL_CALL]"):].lstrip()
+        # Försök att hitta ett JSON-objekt
+        import re as _re
+        m = _re.search(r"\{[\s\S]*\}", s)
+        if not m:
+            return None
+        candidate = json.loads(m.group(0))
+        if isinstance(candidate, dict) and isinstance(candidate.get("tool"), str):
+            args = candidate.get("args") or {}
+            if isinstance(args, dict):
+                return {"tool": candidate["tool"], "args": args}
+    except Exception:
+        return None
+    return None
+
 async def _router_first_try(prompt: str) -> Optional[Dict[str, Any]]:
     """Fråga NLU/Agent-routern om ett verktyg kan köras med hög confidence.
     Returnerar plan-dict eller None.
@@ -271,6 +299,11 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     logger.info("chat local ms=%.0f", dt)
                     raw_text = (data.get("response", "") or "").strip()
                     local_text = _extract_final(raw_text) if USE_HARMONY else raw_text
+                    if USE_HARMONY:
+                        try:
+                            logger.debug("harmony.final.extracted provider=local len=%d", len(local_text))
+                        except Exception:
+                            pass
                     if not local_text:
                         return RuntimeError("local_empty")
                     return await respond(local_text, used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
@@ -309,6 +342,11 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     data = r.json()
                     raw_text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
                     text = _extract_final(raw_text) if USE_HARMONY else raw_text
+                    if USE_HARMONY:
+                        try:
+                            logger.debug("harmony.final.extracted provider=openai len=%d", len(text))
+                        except Exception:
+                            pass
                     dt = (time.time() - t0) * 1000
                     logger.info("chat openai ms=%.0f", dt)
                     return await respond(text, used_provider="openai", engine=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
@@ -463,12 +501,20 @@ async def chat_stream(body: ChatBody):
                                         if si != -1:
                                             final_started = True
                                             buffer_text = buffer_text[si + len("[FINAL]"):]
+                                            try:
+                                                logger.debug("harmony.final.start provider=openai")
+                                            except Exception:
+                                                pass
                                     if final_started and not final_ended:
                                         ei = buffer_text.find("[/FINAL]")
                                         if ei != -1:
                                             out_chunk = buffer_text[:ei]
                                             final_ended = True
                                             buffer_text = ""
+                                            try:
+                                                logger.debug("harmony.final.end provider=openai")
+                                            except Exception:
+                                                pass
                                         else:
                                             out_chunk = buffer_text
                                             buffer_text = ""
@@ -535,12 +581,20 @@ async def chat_stream(body: ChatBody):
                                     if si != -1:
                                         final_started = True
                                         buffer_text = buffer_text[si + len("[FINAL]"):]
+                                        try:
+                                            logger.debug("harmony.final.start provider=local")
+                                        except Exception:
+                                            pass
                                 if final_started and not final_ended:
                                     ei = buffer_text.find("[/FINAL]")
                                     if ei != -1:
                                         out_chunk = buffer_text[:ei]
                                         final_ended = True
                                         buffer_text = ""
+                                        try:
+                                            logger.debug("harmony.final.end provider=local")
+                                        except Exception:
+                                            pass
                                     else:
                                         out_chunk = buffer_text
                                         buffer_text = ""

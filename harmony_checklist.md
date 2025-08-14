@@ -4,9 +4,9 @@ Kort mål: Inför Harmony Response Format end-to-end (kanaler: `analysis`, `comm
 
 ### Fas 0 – Baseline och säkerhetslina
 - [x] Skapa branch `feature/harmony`
-- [ ] Lägg env-flaggor i servern: `USE_HARMONY=false`, `USE_TOOLS=false`
+- [x] Lägg env-flaggor i servern: `USE_HARMONY=false`, `USE_TOOLS=false`
 - [ ] Lägg README-avsnitt: hur man togglar flaggor och kör lokalt
-- [ ] Sätt upp `.venv` i `server/` och frys beroenden
+- [x] Sätt upp `.venv` i `server/` och frys beroenden
 
 ```bash
 cd server
@@ -19,10 +19,10 @@ pip install -r requirements.txt || true
 - [x] Skapa QA/acceptans-checklista-fil `docs/harmony_acceptance.md` (referera till kriterier längst ned i denna fil)
 
 ### Fas 1 – Harmony-adapter i servern
-- [ ] Skapa adapter-lager i `server/app.py` som bygger Harmony-meddelanden (roller: `system`, `developer`, `user`)
-- [ ] Instruktioner till modellen: resonemang i `analysis`, tool-calls i `commentary`, endast svar i `final`
-- [ ] Parsning: extrahera endast kanal `final` till klient (filtrera bort `analysis`/`commentary`)
-- [ ] Lägg debug-loggning i dev: roll + kanal (aldrig `analysis`-innehåll i prod)
+- [x] Skapa adapter-lager i `server/app.py` som bygger Harmony-meddelanden (roller: `system`, `developer`, `user`)
+- [x] Instruktioner till modellen: resonemang i `analysis`, tool-calls i `commentary`, endast svar i `final`
+- [x] Parsning: extrahera endast kanal `final` till klient (filtrera bort `analysis`/`commentary`)
+- [x] Lägg debug-loggning i dev: roll + kanal (aldrig `analysis`-innehåll i prod)
 - [ ] Enhetstest: given syntetiskt Harmony-svar → parsern ger rätt `final` och fångar `tool_call`
 
 ### Fas 2 – Verktygsregister och validering
