@@ -22,6 +22,7 @@ from urllib.parse import urlencode
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
 from .prompts.system_prompts import system_prompt as SP, developer_prompt as DP
+from .metrics import metrics
 from .training import stream_dataset
 from .memory import MemoryStore
 from .tools.registry import list_tool_specs, validate_and_execute_tool
@@ -213,6 +214,7 @@ class ChatBody(BaseModel):
 @app.post("/api/chat")
 async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
+    t_request = time.time()
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
     if MINIMAL_MODE or bool(body.raw):
         contexts = []
@@ -320,11 +322,17 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         if plan and USE_TOOLS:
             name = str(plan.get("tool") or plan.get("name") or "")
             args = plan.get("params") or plan.get("args") or {}
+            t_tool = time.time()
             res = validate_and_execute_tool(name, args, memory)
             if res.get("ok"):
+                metrics.record_router_hit()
+                metrics.record_tool_call_attempted()
+                metrics.record_tool_call_latency((time.time() - t_tool) * 1000)
+                metrics.record_final_latency((time.time() - t_request) * 1000)
                 msg = _format_tool_confirmation(name, args)
                 return {"ok": True, "text": msg, "memory_id": None, "provider": "router", "engine": None}
             # vid valideringsfel → fall-through till LLM
+            metrics.record_tool_validation_failed()
 
         if provider == "local":
             res = await try_local()
@@ -347,6 +355,8 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     # cancel the slower one
                     for p in pending:
                         p.cancel()
+                    metrics.record_llm_hit()
+                    metrics.record_final_latency((time.time() - t_request) * 1000)
                     return res
                 last_error = res
             # if first completed wasn't dict, wait the other
@@ -354,6 +364,8 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                 try:
                     res = await p
                     if isinstance(res, dict) and (res.get("text") or "").strip():
+                        metrics.record_llm_hit()
+                        metrics.record_final_latency((time.time() - t_request) * 1000)
                         return res
                     last_error = res
                 except asyncio.CancelledError:
@@ -362,6 +374,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         logger.exception("/api/chat error")
     # Stub: visa vilken kontext som skulle ha använts, för verifiering i UI
     stub_ctx = ("\n\n[Kontext]\n" + ctx_text) if ctx_text else ""
+    metrics.record_final_latency((time.time() - t_request) * 1000)
     return {"ok": True, "text": f"[stub] {body.prompt}{stub_ctx}", "memory_id": None, "provider": provider, "engine": None, "contexts": ctx_payload}
 
 
@@ -387,6 +400,7 @@ async def chat_stream(body: ChatBody):
     provider = (body.provider or "auto").lower()
 
     async def gen():
+        t_request = time.time()
         final_text = ""
         used_provider = None
         emitted = False
@@ -460,11 +474,24 @@ async def chat_stream(body: ChatBody):
                                             buffer_text = ""
                                     if out_chunk:
                                         emitted = True
+                                        if len(final_text) == 0:
+                                            # first token latency
+                                            try:
+                                                from .metrics import metrics as _metrics
+                                                _metrics.record_first_token((time.time() - t_request) * 1000)
+                                            except Exception:
+                                                pass
                                         final_text += out_chunk
                                         async for out in sse_send({"type": "chunk", "text": out_chunk}):
                                             yield out
                                 else:
                                     emitted = True
+                                    if len(final_text) == 0:
+                                        try:
+                                            from .metrics import metrics as _metrics
+                                            _metrics.record_first_token((time.time() - t_request) * 1000)
+                                        except Exception:
+                                            pass
                                     final_text += raw_delta
                                     async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                         yield out
@@ -519,11 +546,23 @@ async def chat_stream(body: ChatBody):
                                         buffer_text = ""
                                 if out_chunk:
                                     emitted = True
+                                    if len(final_text) == 0:
+                                        try:
+                                            from .metrics import metrics as _metrics
+                                            _metrics.record_first_token((time.time() - t_request) * 1000)
+                                        except Exception:
+                                            pass
                                     final_text += out_chunk
                                     async for out in sse_send({"type": "chunk", "text": out_chunk}):
                                         yield out
                             else:
                                 emitted = True
+                                if len(final_text) == 0:
+                                    try:
+                                        from .metrics import metrics as _metrics
+                                        _metrics.record_first_token((time.time() - t_request) * 1000)
+                                    except Exception:
+                                        pass
                                 final_text += raw_delta
                                 async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                     yield out
@@ -583,6 +622,11 @@ async def chat_stream(body: ChatBody):
             if final_text:
                 tags = {"source": "chat", "provider": used_provider}
                 mem_id = memory.upsert_text_memory(final_text, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+        except Exception:
+            pass
+        try:
+            from .metrics import metrics as _metrics
+            _metrics.record_final_latency((time.time() - t_request) * 1000)
         except Exception:
             pass
         async for out in sse_send({"type": "done", "provider": used_provider, "memory_id": mem_id}):

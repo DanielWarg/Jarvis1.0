@@ -53,9 +53,9 @@ pip install -r requirements.txt || true
 - [ ] Test: stream fallback → heltextsvar via `final`
 
 ### Fas 7 – Telemetri och loggning
-- [ ] Logga p50/p95: tid till första `final`-token
-- [ ] Logga: tid `tool_call` → `tool_result`, valideringsfel, no-tool-if-unsure
-- [ ] Logga: router-vs-LLM hit-rate
+- [x] Logga p50/p95: tid till första `final`-token
+- [x] Logga: tid `tool_call` → `tool_result`, valideringsfel, no-tool-if-unsure
+- [x] Logga: router-vs-LLM hit-rate
 
 ### Fas 8 – Evals
 - [ ] Skapa 20 kommandon som kräver verktyg (ska tool-callas)
