@@ -67,6 +67,26 @@ npm run dev -- -p 3100
 
 Then open: [http://localhost:3100](http://localhost:3100)
 
+### Harmony feature flags
+
+Create `.env` in repo root (see `.env.example`):
+
+```
+USE_HARMONY=false
+USE_TOOLS=false
+HARMONY_TEMPERATURE_COMMANDS=0.2
+NLU_CONFIDENCE_THRESHOLD=0.85
+```
+
+Toggle Harmony adapter:
+
+```
+export USE_HARMONY=true
+export USE_TOOLS=false
+uvicorn server.app:app --host 127.0.0.1 --port 8000
+```
+
+
 ---
 
 ## 🎵 Spotify Setup

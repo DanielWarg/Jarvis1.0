@@ -5,7 +5,7 @@ Kort mål: Inför Harmony Response Format end-to-end (kanaler: `analysis`, `comm
 ### Fas 0 – Baseline och säkerhetslina
 - [x] Skapa branch `feature/harmony`
 - [x] Lägg env-flaggor i servern: `USE_HARMONY=false`, `USE_TOOLS=false`
-- [ ] Lägg README-avsnitt: hur man togglar flaggor och kör lokalt
+- [x] Lägg README-avsnitt: hur man togglar flaggor och kör lokalt
 - [x] Sätt upp `.venv` i `server/` och frys beroenden
 
 ```bash
@@ -23,7 +23,7 @@ pip install -r requirements.txt || true
 - [x] Instruktioner till modellen: resonemang i `analysis`, tool-calls i `commentary`, endast svar i `final`
 - [x] Parsning: extrahera endast kanal `final` till klient (filtrera bort `analysis`/`commentary`)
 - [x] Lägg debug-loggning i dev: roll + kanal (aldrig `analysis`-innehåll i prod)
-- [ ] Enhetstest: given syntetiskt Harmony-svar → parsern ger rätt `final` och fångar `tool_call`
+- [x] Enhetstest: given syntetiskt Harmony-svar → parsern ger rätt `final` och fångar `tool_call`
 
 ### Fas 2 – Verktygsregister och validering
 - [x] Skapa `server/tools/registry.py` med verktygsspecar (namn, beskrivning, JSON-schema)
