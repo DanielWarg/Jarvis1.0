@@ -4,3 +4,4 @@ httpx
 orjson
 python-dotenv
 pydantic
+pytest

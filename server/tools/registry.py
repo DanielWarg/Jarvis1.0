@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, Tuple, Type
 
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class EmptyArgs(BaseModel):
@@ -14,19 +14,17 @@ class SetVolumeArgs(BaseModel):
     level: Optional[int] = Field(default=None, description="Målnivå 0-100")
     delta: Optional[int] = Field(default=None, description="Relativ justering -100..100")
 
-    @root_validator
-    def validate_level_or_delta(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        level = values.get("level")
-        delta = values.get("delta")
-        if level is None and delta is None:
+    @model_validator(mode="after")
+    def validate_level_or_delta(self) -> "SetVolumeArgs":
+        if self.level is None and self.delta is None:
             raise ValueError("Ange antingen 'level' eller 'delta'.")
-        if level is not None:
-            if not isinstance(level, int) or level < 0 or level > 100:
+        if self.level is not None:
+            if not isinstance(self.level, int) or self.level < 0 or self.level > 100:
                 raise ValueError("'level' måste vara ett heltal 0-100.")
-        if delta is not None:
-            if not isinstance(delta, int) or delta < -100 or delta > 100:
+        if self.delta is not None:
+            if not isinstance(self.delta, int) or self.delta < -100 or self.delta > 100:
                 raise ValueError("'delta' måste vara ett heltal mellan -100 och 100.")
-        return values
+        return self
 
 
 class SayArgs(BaseModel):
@@ -89,11 +87,11 @@ def validate_and_execute_tool(name: str, args: Dict[str, Any], memory: Optional[
         return {"ok": False, "error": "unknown_tool"}
     model, exec_fn, _desc = REGISTRY[name.upper()]
     try:
-        payload = model.parse_obj(args or {})
+        payload = model.model_validate(args or {})
     except Exception as e:
         return {"ok": False, "error": "invalid_args", "message": str(e)}
     try:
-        res = exec_fn(payload.dict(), memory)
+        res = exec_fn(payload.model_dump(), memory)
         return res
     except Exception as e:
         return {"ok": False, "error": "execution_failed", "message": str(e)}
