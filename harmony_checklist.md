@@ -64,11 +64,11 @@ pip install -r requirements.txt || true
 - [ ] Mål: ≥95% korrekt vägval, 0% `analysis`-läckage, p50 under mål för snabba intents
 
 ### Fas 9 – Utrullning i små PR:er
-- [ ] PR1: flaggor + Harmony-adapter (final-extraktion/stream), inga verktyg
-- [ ] PR2: tool-registry + validering kopplats, `USE_TOOLS=false`
+- [x] PR1: flaggor + Harmony-adapter (final-extraktion/stream), inga verktyg
+- [x] PR2: tool-registry + validering kopplats, `USE_TOOLS=false`
 - [ ] PR3: aktivera `USE_TOOLS=true` för 2–3 verktyg + "no-tool-if-unsure"
-- [ ] PR4: router-först med tröskel
-- [ ] PR5: telemetri + syntetiska evals
+- [x] PR4: router-först med tröskel
+- [x] PR5: telemetri + syntetiska evals
 
 ### Fas 10 – Dokumentation och runbooks
 - [ ] Uppdatera `README.md`/`ARCHITECTURE.md`: hur Harmony funkar hos oss
@@ -76,12 +76,12 @@ pip install -r requirements.txt || true
 - [ ] Felsökning: kanalläckage, valideringsfel, latensspikar
 
 ### Miljövariabler (läggs till och dokumenteras)
-- [ ] `USE_HARMONY`, `USE_TOOLS`
+- [x] `USE_HARMONY`, `USE_TOOLS`
 - [ ] `HARMONY_REASONING_LEVEL=low|medium|high`
-- [ ] `HARMONY_TEMPERATURE_COMMANDS=0.2`, `HARMONY_TEMPERATURE_CREATIVE=0.6`
-- [ ] `NLU_CONFIDENCE_THRESHOLD`
+- [x] `HARMONY_TEMPERATURE_COMMANDS=0.2`, `HARMONY_TEMPERATURE_CREATIVE=0.6`
+- [x] `NLU_CONFIDENCE_THRESHOLD`
 - [ ] Lokal LLM: `TRANSFORMERS_MODEL_PATH` eller `OLLAMA_HOST`
-- [ ] `MAX_TOKENS`, `TOP_P`, `LOG_LEVEL`
+- [x] `MAX_TOKENS`, `TOP_P`, `LOG_LEVEL`
 
 ### Go-live Akzeptanskriterier (måste uppfyllas innan aktivering)
 - [ ] "Pausa musiken" → router/Harmony-tool-call; UI får kort `final`-bekräftelse
