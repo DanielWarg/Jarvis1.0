@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
+from .prompts.system_prompts import system_prompt as SP, developer_prompt as DP
 from .training import stream_dataset
 from .memory import MemoryStore
 from .tools.registry import list_tool_specs, validate_and_execute_tool
@@ -42,20 +43,11 @@ except Exception:
 
 
 def _harmony_system_prompt() -> str:
-    # Kort och deterministisk persona + kanalpolicy
-    return (
-        "Du är Jarvis. Svara alltid på svenska. Följ Harmony-kanaler: "
-        "resonemang skrivs enbart i analysis (aldrig till användaren), verktyg i commentary (inte aktivt i denna fas), "
-        "och slutligt svar i final. För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
-    )
+    return SP() + " För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
 
 
 def _harmony_developer_prompt() -> str:
-    return (
-        "Följ Harmony strikt. Läck aldrig analysis till användaren. "
-        "I denna fas används inga verktyg: skriv därför ingen commentary. "
-        "Placera hela användarsvaret mellan [FINAL] och [/FINAL]."
-    )
+    return DP()
 
 
 def _extract_final(text: str) -> str:

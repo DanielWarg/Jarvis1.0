@@ -38,9 +38,9 @@ pip install -r requirements.txt || true
 - [ ] Smoke-test: modell svarar i rätt kanaler (ingen läcka till UI)
 
 ### Fas 4 – Prompts och policys
-- [ ] Skapa `server/prompts/system_prompts.py` (svenska, kort persona, capabilities, safety)
-- [ ] Skapa developer-prompt: följ Harmony; "no-tool-if-unsure"; kort `final`
-- [ ] Länka in i adapter-lagret
+- [x] Skapa `server/prompts/system_prompts.py` (svenska, kort persona, capabilities, safety)
+- [x] Skapa developer-prompt: följ Harmony; "no-tool-if-unsure"; kort `final`
+- [x] Länka in i adapter-lagret
 
 ### Fas 5 – Router-först
 - [ ] Behåll existerande NLU/router som förstaval (hög confidence → direkt exekvering)
