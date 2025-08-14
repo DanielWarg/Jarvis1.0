@@ -32,8 +32,8 @@ pip install -r requirements.txt || true
 - [ ] Enhetstest: fel parametrar → vägran/klargörande, inte exekvering
 
 ### Fas 3 – Körsätt för gpt-oss lokalt
-- [ ] Välj körsätt: Transformers-gateway (rekommenderat) eller Ollama-adapter
-- [ ] Dokumentera valet i `docs/AGENT_README.md`
+- [x] Välj körsätt: Transformers-gateway (rekommenderat) eller Ollama-adapter
+- [x] Dokumentera valet i `docs/AGENT_README.md`
 - [ ] Transformers: skapa liten gateway som accepterar Harmony-messages och returnerar kanaler/tool-calls
 - [ ] Smoke-test: modell svarar i rätt kanaler (ingen läcka till UI)
 
