@@ -26,9 +26,9 @@ pip install -r requirements.txt || true
 - [ ] Enhetstest: given syntetiskt Harmony-svar → parsern ger rätt `final` och fångar `tool_call`
 
 ### Fas 2 – Verktygsregister och validering
-- [ ] Skapa `server/tools/registry.py` med verktygsspecar (namn, beskrivning, JSON-schema)
-- [ ] Implementera exekvering med Pydantic-validering (no-tool-if-unsure)
-- [ ] Första verktyg: `PLAY`, `PAUSE`, `SET_VOLUME`, `SAY`/`DISPLAY`
+- [x] Skapa `server/tools/registry.py` med verktygsspecar (namn, beskrivning, JSON-schema)
+- [x] Implementera exekvering med Pydantic-validering (no-tool-if-unsure)
+- [x] Första verktyg: `PLAY`, `PAUSE`, `SET_VOLUME`, `SAY`/`DISPLAY`
 - [ ] Enhetstest: fel parametrar → vägran/klargörande, inte exekvering
 
 ### Fas 3 – Körsätt för gpt-oss lokalt

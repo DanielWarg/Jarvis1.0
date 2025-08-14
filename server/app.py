@@ -22,6 +22,8 @@ from urllib.parse import urlencode
 from .memory import MemoryStore
 from .decision import EpsilonGreedyBandit, simulate_first
 from .training import stream_dataset
+from .memory import MemoryStore
+from .tools.registry import list_tool_specs, validate_and_execute_tool
 
 
 load_dotenv()
@@ -96,7 +98,7 @@ class JarvisResponse(BaseModel):
 
 @app.get("/api/health")
 async def health() -> Dict[str, Any]:
-    return {"status": "ok", "db": memory.ping(), "ts": datetime.utcnow().isoformat() + "Z"}
+    return {"status": "ok", "db": memory.ping(), "ts": datetime.utcnow().isoformat() + "Z", "harmony": USE_HARMONY, "tools": USE_TOOLS}
 
 
 @app.post("/api/jarvis/command", response_model=JarvisResponse)
@@ -135,6 +137,32 @@ class ToolPickBody(BaseModel):
 async def pick_tool(body: ToolPickBody) -> Dict[str, Any]:
     choice = bandit.pick(body.candidates)
     return {"ok": True, "tool": choice}
+
+
+class ExecToolBody(BaseModel):
+    name: str
+    args: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/tools/exec")
+async def tools_exec(body: ExecToolBody) -> Dict[str, Any]:
+    if not USE_TOOLS:
+        return {"ok": False, "error": "tools_disabled"}
+    res = validate_and_execute_tool(body.name, body.args or {}, memory)
+    # Enkel telemetri
+    try:
+        if res.get("ok"):
+            memory.update_tool_stats(body.name, success=True)
+        else:
+            memory.update_tool_stats(body.name, success=False)
+    except Exception:
+        pass
+    return res
+
+
+@app.get("/api/tools/specs")
+async def tools_specs() -> Dict[str, Any]:
+    return {"ok": True, "items": list_tool_specs()}
 
 
 class ChatBody(BaseModel):
