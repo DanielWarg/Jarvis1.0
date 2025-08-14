@@ -43,9 +43,9 @@ pip install -r requirements.txt || true
 - [x] Länka in i adapter-lagret
 
 ### Fas 5 – Router-först
-- [ ] Behåll existerande NLU/router som förstaval (hög confidence → direkt exekvering)
-- [ ] Lägg tröskel `NLU_CONFIDENCE_THRESHOLD` i env
-- [ ] Lägre confidence/okända intents → skicka via Harmony + verktygsspec
+- [x] Behåll existerande NLU/router som förstaval (hög confidence → direkt exekvering)
+- [x] Lägg tröskel `NLU_CONFIDENCE_THRESHOLD` i env
+- [x] Lägre confidence/okända intents → skicka via Harmony + verktygsspec
 
 ### Fas 6 – Streaming och UI
 - [ ] Servern streamar endast `final` till klient

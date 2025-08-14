@@ -40,6 +40,11 @@ try:
     HARMONY_TEMPERATURE_COMMANDS = float(os.getenv("HARMONY_TEMPERATURE_COMMANDS", "0.2"))
 except Exception:
     HARMONY_TEMPERATURE_COMMANDS = 0.2
+try:
+    NLU_CONFIDENCE_THRESHOLD = float(os.getenv("NLU_CONFIDENCE_THRESHOLD", "0.85"))
+except Exception:
+    NLU_CONFIDENCE_THRESHOLD = 0.85
+NLU_AGENT_URL = os.getenv("NLU_AGENT_URL", "http://127.0.0.1:7071")
 
 
 def _harmony_system_prompt() -> str:
@@ -59,6 +64,46 @@ def _extract_final(text: str) -> str:
     except Exception:
         pass
     return (text or "").strip()
+
+
+async def _router_first_try(prompt: str) -> Optional[Dict[str, Any]]:
+    """Fråga NLU/Agent-routern om ett verktyg kan köras med hög confidence.
+    Returnerar plan-dict eller None.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as client:
+            r = await client.post(f"{NLU_AGENT_URL}/agent/route", json={"text": prompt})
+            if r.status_code != 200:
+                return None
+            j = r.json() or {}
+            plan = j.get("plan")
+            conf = float(j.get("confidence") or 0.0)
+            if plan and conf >= NLU_CONFIDENCE_THRESHOLD:
+                return plan
+    except Exception:
+        return None
+    return None
+
+
+def _format_tool_confirmation(name: str, args: Dict[str, Any]) -> str:
+    n = (name or "").upper()
+    a = args or {}
+    if n == "PLAY":
+        return "Spelar upp."
+    if n == "PAUSE":
+        return "Pausar."
+    if n == "SET_VOLUME":
+        if isinstance(a.get("level"), int):
+            return f"Volym satt till {a['level']}%."
+        if isinstance(a.get("delta"), int):
+            d = a['delta']
+            return f"Volym {'höjd' if d>0 else 'sänkt'} med {abs(d)}%."
+        return "Volym uppdaterad."
+    if n == "SAY":
+        return str(a.get("text") or "")
+    if n == "DISPLAY":
+        return str(a.get("text") or "")
+    return "Klart."
 
 app.add_middleware(
     CORSMiddleware,
@@ -270,6 +315,17 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
         return RuntimeError("openai_failed")
 
     try:
+        # Router-först: snabba intents exekveras direkt utan LLM om high-confidence
+        plan = await _router_first_try(body.prompt)
+        if plan and USE_TOOLS:
+            name = str(plan.get("tool") or plan.get("name") or "")
+            args = plan.get("params") or plan.get("args") or {}
+            res = validate_and_execute_tool(name, args, memory)
+            if res.get("ok"):
+                msg = _format_tool_confirmation(name, args)
+                return {"ok": True, "text": msg, "memory_id": None, "provider": "router", "engine": None}
+            # vid valideringsfel → fall-through till LLM
+
         if provider == "local":
             res = await try_local()
             if isinstance(res, dict):
