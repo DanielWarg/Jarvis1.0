@@ -30,6 +30,41 @@ logger = logging.getLogger("jarvis")
 
 app = FastAPI(title="Jarvis 2.0 Backend", version="0.1.0", default_response_class=ORJSONResponse)
 MINIMAL_MODE = os.getenv("JARVIS_MINIMAL", "0") == "1"
+# Harmony feature flags (Fas 1 – adapter bakom flaggor)
+USE_HARMONY = (os.getenv("USE_HARMONY", "false").lower() == "true")
+USE_TOOLS = (os.getenv("USE_TOOLS", "false").lower() == "true")
+try:
+    HARMONY_TEMPERATURE_COMMANDS = float(os.getenv("HARMONY_TEMPERATURE_COMMANDS", "0.2"))
+except Exception:
+    HARMONY_TEMPERATURE_COMMANDS = 0.2
+
+
+def _harmony_system_prompt() -> str:
+    # Kort och deterministisk persona + kanalpolicy
+    return (
+        "Du är Jarvis. Svara alltid på svenska. Följ Harmony-kanaler: "
+        "resonemang skrivs enbart i analysis (aldrig till användaren), verktyg i commentary (inte aktivt i denna fas), "
+        "och slutligt svar i final. För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
+    )
+
+
+def _harmony_developer_prompt() -> str:
+    return (
+        "Följ Harmony strikt. Läck aldrig analysis till användaren. "
+        "I denna fas används inga verktyg: skriv därför ingen commentary. "
+        "Placera hela användarsvaret mellan [FINAL] och [/FINAL]."
+    )
+
+
+def _extract_final(text: str) -> str:
+    try:
+        start = text.find("[FINAL]")
+        end = text.find("[/FINAL]")
+        if start != -1 and end != -1 and end > start:
+            return text[start + len("[FINAL]"):end].strip()
+    except Exception:
+        pass
+    return (text or "").strip()
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,13 +142,14 @@ class ChatBody(BaseModel):
     model: Optional[str] = "gpt-oss:20b"
     stream: Optional[bool] = False
     provider: Optional[str] = "auto"  # 'local' | 'openai' | 'auto'
+    raw: Optional[bool] = False         # when True → no RAG/context, clean reply
 
 
 @app.post("/api/chat")
 async def chat(body: ChatBody) -> Dict[str, Any]:
     logger.info("/api/chat model=%s prompt_len=%d", body.model, len(body.prompt or ""))
     # Minimal RAG: hämta relevanta textminnen via LIKE och inkludera i prompten
-    if MINIMAL_MODE:
+    if MINIMAL_MODE or bool(body.raw):
         contexts = []
         ctx_payload = []
         full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
@@ -157,16 +193,17 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     "http://127.0.0.1:11434/api/generate",
                     json={
                         "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
-                        "prompt": full_prompt,
+                        "prompt": (f"System: {_harmony_system_prompt()}\nDeveloper: {_harmony_developer_prompt()}\nUser: {full_prompt}\nSvar: ") if USE_HARMONY else full_prompt,
                         "stream": False,
-                        "options": {"num_predict": 512, "temperature": 0.3},
+                        "options": {"num_predict": 512, "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.3},
                     },
                 )
                 if r.status_code == 200:
                     data = r.json()
                     dt = (time.time() - t0) * 1000
                     logger.info("chat local ms=%.0f", dt)
-                    local_text = (data.get("response", "") or "").strip()
+                    raw_text = (data.get("response", "") or "").strip()
+                    local_text = _extract_final(raw_text) if USE_HARMONY else raw_text
                     if not local_text:
                         return RuntimeError("local_empty")
                     return await respond(local_text, used_provider="local", engine=(body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b")))
@@ -187,17 +224,24 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                        "messages": [
-                            {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
-                            {"role": "user", "content": full_prompt},
-                        ],
-                        "temperature": 0.5,
+                        "messages": (
+                            [
+                                {"role": "system", "content": _harmony_system_prompt()},
+                                {"role": "developer", "content": _harmony_developer_prompt()},
+                                {"role": "user", "content": full_prompt},
+                            ] if USE_HARMONY else [
+                                {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                                {"role": "user", "content": full_prompt},
+                            ]
+                        ),
+                        "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.5,
                         "max_tokens": 256,
                     },
                 )
                 if r.status_code == 200:
                     data = r.json()
-                    text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    raw_text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                    text = _extract_final(raw_text) if USE_HARMONY else raw_text
                     dt = (time.time() - t0) * 1000
                     logger.info("chat openai ms=%.0f", dt)
                     return await respond(text, used_provider="openai", engine=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
@@ -248,7 +292,7 @@ async def chat(body: ChatBody) -> Dict[str, Any]:
 @app.post("/api/chat/stream")
 async def chat_stream(body: ChatBody):
     # Förbered RAG-kontekst likt /api/chat
-    if MINIMAL_MODE:
+    if MINIMAL_MODE or bool(body.raw):
         contexts = []
         ctx_payload = []
         full_prompt = f"Besvara på svenska.\n\nFråga: {body.prompt}\nSvar:"
@@ -285,11 +329,17 @@ async def chat_stream(body: ChatBody):
                         headers={"Authorization": f"Bearer {api_key}"},
                         json={
                             "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                            "messages": [
-                                {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
-                                {"role": "user", "content": full_prompt},
-                            ],
-                            "temperature": 0.5,
+                            "messages": (
+                                [
+                                    {"role": "system", "content": _harmony_system_prompt()},
+                                    {"role": "developer", "content": _harmony_developer_prompt()},
+                                    {"role": "user", "content": full_prompt},
+                                ] if USE_HARMONY else [
+                                    {"role": "system", "content": "Du är Jarvis. Svara på svenska och använd 'Relevanta minnen' om de hjälper."},
+                                    {"role": "user", "content": full_prompt},
+                                ]
+                            ),
+                            "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.5,
                             "stream": True,
                             "max_tokens": 256,
                         },
@@ -307,7 +357,8 @@ async def chat_stream(body: ChatBody):
                                 break
                             try:
                                 obj = json.loads(data)
-                                delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                                raw_delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
+                                delta = _extract_final(raw_delta) if USE_HARMONY else raw_delta
                                 if delta:
                                     emitted = True
                                     final_text += delta

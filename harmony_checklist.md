@@ -3,7 +3,7 @@
 Kort mål: Inför Harmony Response Format end-to-end (kanaler: `analysis`, `commentary`, `final`) med server-side tool-exec och bibehållen router-först för snabba intents. Allt bakom feature-flaggor.
 
 ### Fas 0 – Baseline och säkerhetslina
-- [ ] Skapa branch `feature/harmony`
+- [x] Skapa branch `feature/harmony`
 - [ ] Lägg env-flaggor i servern: `USE_HARMONY=false`, `USE_TOOLS=false`
 - [ ] Lägg README-avsnitt: hur man togglar flaggor och kör lokalt
 - [ ] Sätt upp `.venv` i `server/` och frys beroenden
@@ -16,7 +16,7 @@ pip install -U pip
 pip install -r requirements.txt || true
 ```
 
-- [ ] Skapa QA/acceptans-checklista-fil `docs/harmony_acceptance.md` (referera till kriterier längst ned i denna fil)
+- [x] Skapa QA/acceptans-checklista-fil `docs/harmony_acceptance.md` (referera till kriterier längst ned i denna fil)
 
 ### Fas 1 – Harmony-adapter i servern
 - [ ] Skapa adapter-lager i `server/app.py` som bygger Harmony-meddelanden (roller: `system`, `developer`, `user`)
