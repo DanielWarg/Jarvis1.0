@@ -48,8 +48,8 @@ pip install -r requirements.txt || true
 - [x] Lägre confidence/okända intents → skicka via Harmony + verktygsspec
 
 ### Fas 6 – Streaming och UI
-- [ ] Servern streamar endast `final` till klient
-- [ ] Lägg lätt metadata till UI: `tool_called`, `tool_result` (ingen `analysis`)
+- [x] Servern streamar endast `final` till klient
+- [x] Lägg lätt metadata till UI: `tool_called`, `tool_result` (ingen `analysis`)
 - [ ] Test: stream fallback → heltextsvar via `final`
 
 ### Fas 7 – Telemetri och loggning

@@ -390,6 +390,10 @@ async def chat_stream(body: ChatBody):
         final_text = ""
         used_provider = None
         emitted = False
+        # För Harmony-streaming: buffra och extrahera endast [FINAL]...[/FINAL]
+        final_started = False
+        final_ended = False
+        buffer_text = ""
 
         async def sse_send(obj):
             yield f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
@@ -434,11 +438,35 @@ async def chat_stream(body: ChatBody):
                             try:
                                 obj = json.loads(data)
                                 raw_delta = (((obj.get("choices") or [{}])[0]).get("delta") or {}).get("content")
-                                delta = _extract_final(raw_delta) if USE_HARMONY else raw_delta
-                                if delta:
+                                if not raw_delta:
+                                    continue
+                                if USE_HARMONY:
+                                    nonlocal final_started, final_ended, buffer_text
+                                    buffer_text += raw_delta
+                                    out_chunk = ""
+                                    if not final_started:
+                                        si = buffer_text.find("[FINAL]")
+                                        if si != -1:
+                                            final_started = True
+                                            buffer_text = buffer_text[si + len("[FINAL]"):]
+                                    if final_started and not final_ended:
+                                        ei = buffer_text.find("[/FINAL]")
+                                        if ei != -1:
+                                            out_chunk = buffer_text[:ei]
+                                            final_ended = True
+                                            buffer_text = ""
+                                        else:
+                                            out_chunk = buffer_text
+                                            buffer_text = ""
+                                    if out_chunk:
+                                        emitted = True
+                                        final_text += out_chunk
+                                        async for out in sse_send({"type": "chunk", "text": out_chunk}):
+                                            yield out
+                                else:
                                     emitted = True
-                                    final_text += delta
-                                    async for out in sse_send({"type": "chunk", "text": delta}):
+                                    final_text += raw_delta
+                                    async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                         yield out
                             except Exception:
                                 continue
@@ -452,9 +480,9 @@ async def chat_stream(body: ChatBody):
                         "http://127.0.0.1:11434/api/generate",
                         json={
                             "model": body.model or os.getenv("LOCAL_MODEL", "gpt-oss:20b"),
-                            "prompt": full_prompt,
+                            "prompt": (f"System: {_harmony_system_prompt()}\nDeveloper: {_harmony_developer_prompt()}\nUser: {full_prompt}\nSvar: ") if USE_HARMONY else full_prompt,
                             "stream": True,
-                            "options": {"num_predict": 256, "temperature": 0.3},
+                            "options": {"num_predict": 256, "temperature": HARMONY_TEMPERATURE_COMMANDS if USE_HARMONY else 0.3},
                         },
                     )
                     if r.status_code != 200:
@@ -468,11 +496,36 @@ async def chat_stream(body: ChatBody):
                             obj = json.loads(line)
                             if obj.get("done"):
                                 break
-                            delta = obj.get("response")
-                            if delta:
+                            raw_delta = obj.get("response")
+                            if not raw_delta:
+                                continue
+                            if USE_HARMONY:
+                                nonlocal final_started, final_ended, buffer_text
+                                buffer_text += raw_delta
+                                out_chunk = ""
+                                if not final_started:
+                                    si = buffer_text.find("[FINAL]")
+                                    if si != -1:
+                                        final_started = True
+                                        buffer_text = buffer_text[si + len("[FINAL]"):]
+                                if final_started and not final_ended:
+                                    ei = buffer_text.find("[/FINAL]")
+                                    if ei != -1:
+                                        out_chunk = buffer_text[:ei]
+                                        final_ended = True
+                                        buffer_text = ""
+                                    else:
+                                        out_chunk = buffer_text
+                                        buffer_text = ""
+                                if out_chunk:
+                                    emitted = True
+                                    final_text += out_chunk
+                                    async for out in sse_send({"type": "chunk", "text": out_chunk}):
+                                        yield out
+                            else:
                                 emitted = True
-                                final_text += delta
-                                async for out in sse_send({"type": "chunk", "text": delta}):
+                                final_text += raw_delta
+                                async for out in sse_send({"type": "chunk", "text": raw_delta}):
                                     yield out
                         except Exception:
                             continue
@@ -482,6 +535,33 @@ async def chat_stream(body: ChatBody):
         # skicka meta först
         async for out in sse_send({"type": "meta", "contexts": ctx_payload}):
             yield out
+
+        # Router-först även för streaming: exekvera verktyg direkt och streama endast final-bekräftelse
+        if USE_TOOLS:
+            plan = await _router_first_try(body.prompt)
+            if plan:
+                name = str(plan.get("tool") or plan.get("name") or "")
+                args = plan.get("params") or plan.get("args") or {}
+                async for out in sse_send({"type": "tool_called", "name": name, "args": args}):
+                    yield out
+                res = validate_and_execute_tool(name, args, memory)
+                async for out in sse_send({"type": "tool_result", "ok": bool(res.get("ok")), "result": res}):
+                    yield out
+                if res.get("ok"):
+                    confirm = _format_tool_confirmation(name, args)
+                    emitted = True
+                    final_text += confirm
+                    async for out in sse_send({"type": "chunk", "text": confirm}):
+                        yield out
+                    mem_id = None
+                    try:
+                        tags = {"source": "chat", "provider": "router"}
+                        mem_id = memory.upsert_text_memory(confirm, score=0.0, tags_json=json.dumps(tags, ensure_ascii=False))
+                    except Exception:
+                        pass
+                    async for out in sse_send({"type": "done", "provider": "router", "memory_id": mem_id}):
+                        yield out
+                    return
 
         if provider == "openai":
             async for out in openai_stream():
