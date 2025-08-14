@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, Optional, Set, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from fastapi.responses import ORJSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -26,6 +26,7 @@ from .metrics import metrics
 from .training import stream_dataset
 from .memory import MemoryStore
 from .tools.registry import list_tool_specs, validate_and_execute_tool
+from .harmony_test_endpoint import HarmonyTestBatchRequest, HarmonyTestBatchResponse, run_harmony_test_case
 
 
 load_dotenv()
@@ -166,6 +167,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Harmony E2E test endpoint (kan stängas av i prod via proxy)
+router = APIRouter()
+
+@router.post("/harmony/test", response_model=HarmonyTestBatchResponse)
+async def harmony_test(req: HarmonyTestBatchRequest):
+    results = []
+    for case in req.cases:
+        res = await run_harmony_test_case(case, req)
+        results.append(res)
+    passed = sum(1 for r in results if r.passed)
+    failed = len(results) - passed
+    summary = {
+        "total": len(results),
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": round(100.0 * passed / max(1, len(results)), 2),
+    }
+    return HarmonyTestBatchResponse(results=results, summary=summary)
+
+app.include_router(router)
 
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
