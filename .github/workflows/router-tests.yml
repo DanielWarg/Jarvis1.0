@@ -1,0 +1,72 @@
+name: Router Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'jarvis-tools/src/router/**'
+      - 'server/tests/test_router_commands.py'
+      - '.github/workflows/router-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'jarvis-tools/src/router/**'
+      - 'server/tests/test_router_commands.py'
+      - '.github/workflows/router-tests.yml'
+
+jobs:
+  test:
+    name: Run Router Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      # Backend service
+      backend:
+        image: node:18
+        ports:
+          - 8000:8000
+        options: --health-cmd "curl -f http://localhost:8000/health || exit 1" --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install aiohttp rich python-dotenv pytest
+      
+      - name: Create .env file
+        run: |
+          echo "API_URL=http://localhost:8000" > .env
+          echo "API_KEY=${{ secrets.API_KEY }}" >> .env
+      
+      - name: Run router tests
+        run: |
+          python server/tests/test_router_commands.py
+      
+      - name: Upload test results
+        if: always()  # Kör även om testerna failar
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-test-results
+          path: server/tests/results/*.jsonl
+          retention-days: 14  # Behåll loggarna i 14 dagar
+      
+      - name: Analyze test results
+        if: always()
+        run: |
+          echo "Test Results Summary:"
+          echo "===================="
+          cat server/tests/results/*.jsonl | jq -r '. | select(.success==false) | "❌ Failed: \(.phrase) - \(.error)"'
+          echo "===================="
+          FAILED_COUNT=$(cat server/tests/results/*.jsonl | jq -r 'select(.success==false) | .phrase' | wc -l)
+          echo "Total failed tests: $FAILED_COUNT"
+          if [ $FAILED_COUNT -gt 0 ]; then
+            exit 1
+          fi
