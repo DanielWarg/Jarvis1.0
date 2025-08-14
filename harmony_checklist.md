@@ -77,7 +77,7 @@ pip install -r requirements.txt || true
 
 ### Miljövariabler (läggs till och dokumenteras)
 - [x] `USE_HARMONY`, `USE_TOOLS`
-- [ ] `HARMONY_REASONING_LEVEL=low|medium|high`
+- [x] `HARMONY_REASONING_LEVEL=low|medium|high`
 - [x] `HARMONY_TEMPERATURE_COMMANDS=0.2`, `HARMONY_TEMPERATURE_CREATIVE=0.6`
 - [x] `NLU_CONFIDENCE_THRESHOLD`
 - [ ] Lokal LLM: `TRANSFORMERS_MODEL_PATH` eller `OLLAMA_HOST`

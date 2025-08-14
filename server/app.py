@@ -47,6 +47,16 @@ except Exception:
     NLU_CONFIDENCE_THRESHOLD = 0.85
 NLU_AGENT_URL = os.getenv("NLU_AGENT_URL", "http://127.0.0.1:7071")
 
+# Optional: styr resonemangsnivå (påverkar temp om HARMONY_TEMPERATURE_COMMANDS inte satts)
+HARMONY_REASONING_LEVEL = (os.getenv("HARMONY_REASONING_LEVEL", "low").strip().lower())
+if os.getenv("HARMONY_TEMPERATURE_COMMANDS") is None:
+    if HARMONY_REASONING_LEVEL == "high":
+        HARMONY_TEMPERATURE_COMMANDS = 0.5
+    elif HARMONY_REASONING_LEVEL == "medium":
+        HARMONY_TEMPERATURE_COMMANDS = 0.35
+    else:
+        HARMONY_TEMPERATURE_COMMANDS = 0.2
+
 
 def _harmony_system_prompt() -> str:
     return SP() + " För denna fas: skriv ENDAST slutligt svar mellan taggarna [FINAL] och [/FINAL]."
