@@ -58,9 +58,9 @@ pip install -r requirements.txt || true
 - [x] Logga: router-vs-LLM hit-rate
 
 ### Fas 8 – Evals
-- [ ] Skapa 20 kommandon som kräver verktyg (ska tool-callas)
-- [ ] Skapa 20 rena chattfrågor (ska inte tool-callas)
-- [ ] Skapa 10 fall med saknade parametrar (ska vägra/klargöra)
+- [x] Skapa 20 kommandon som kräver verktyg (ska tool-callas)
+- [x] Skapa 20 rena chattfrågor (ska inte tool-callas)
+- [x] Skapa 10 fall med saknade parametrar (ska vägra/klargöra)
 - [ ] Mål: ≥95% korrekt vägval, 0% `analysis`-läckage, p50 under mål för snabba intents
 
 ### Fas 9 – Utrullning i små PR:er
